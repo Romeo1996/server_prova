@@ -1,19 +1,18 @@
 FROM python:3.11-slim
 
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
 WORKDIR /app
 
 RUN pip install --no-cache-dir uv
 
-# 👇 IMPORTANTISSIMO: copia anche il lock
+# Copia il file di progetto e lockfile
 COPY pyproject.toml uv.lock ./
 
-# debug utile (opzionale ma consigliato)
-RUN ls -la
-
-# installa in modalità deterministica
+# Installa in modalità deterministica (frozen)
 RUN uv sync --frozen --no-dev
 
 COPY src ./src
