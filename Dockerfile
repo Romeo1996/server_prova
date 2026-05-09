@@ -1,5 +1,5 @@
-# Immagine con Python 3.11 e UV pre-installati
-FROM astral/uv:latest-python3.11-slim
+# Immagine con Python 3.11 e UV
+FROM python:3.11-slim
 
 # Variabili di ambiente
 ENV PYTHONUNBUFFERED=1 \
@@ -7,6 +7,9 @@ ENV PYTHONUNBUFFERED=1 \
 
 # Imposta la directory di lavoro
 WORKDIR /app
+
+# Installa UV
+RUN pip install --no-cache-dir uv
 
 # Copia il file di progetto
 COPY pyproject.toml .
@@ -21,4 +24,4 @@ COPY src ./src
 EXPOSE 8080
 
 # Comando di avvio
-CMD ["uv", "run", "--no-sync", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uv", "run", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8080"]
