@@ -7,13 +7,14 @@ WORKDIR /app
 
 RUN pip install --no-cache-dir uv
 
-COPY pyproject.toml ./
+# 👇 IMPORTANTISSIMO: copia anche il lock
+COPY pyproject.toml uv.lock ./
 
-# Copia il lockfile se esiste
-COPY uv.lock ./
+# debug utile (opzionale ma consigliato)
+RUN ls -la
 
-# installa dipendenze SENZA frozen
-RUN uv sync --no-dev
+# installa in modalità deterministica
+RUN uv sync --frozen --no-dev
 
 COPY src ./src
 
