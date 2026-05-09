@@ -19,7 +19,7 @@ Questo progetto contiene un server FastAPI semplice con endpoint "hello world" c
 docker-compose up
 ```
 
-Il server sarà disponibile su: `http://localhost:8080`
+Il server sarà disponibile su: `http://localhost:8086`
 
 ### Opzione 2: Usando Docker direttamente
 
@@ -28,29 +28,29 @@ Il server sarà disponibile su: `http://localhost:8080`
 docker build -t fastapi-hello .
 
 # Avvio del container
-docker run -p 8080:8080 fastapi-hello
+docker run -p 8086:8086 fastapi-hello
 ```
 
 ## Endpoint disponibili
 
 - **GET `/`** - Ritorna "Hello World!"
   ```
-  curl http://localhost:8080/
+  curl http://localhost:8086/
   ```
 
 - **GET `/health`** - Verifica della salute del server
   ```
-  curl http://localhost:8080/health
+  curl http://localhost:8086/health
   ```
 
 - **GET `/docs`** - Documentazione interattiva (Swagger UI)
   ```
-  http://localhost:8080/docs
+  http://localhost:8086/docs
   ```
 
 - **GET `/redoc`** - Documentazione alternativa (ReDoc)
   ```
-  http://localhost:8080/redoc
+  http://localhost:8086/redoc
   ```
 
 ## Struttura del progetto
@@ -77,7 +77,7 @@ docker-compose down
 
 ## Note
 
-- La porta predefinita è 8080, ma può essere modificata nel `docker-compose.yml`
+- La porta predefinita è 8086, ma può essere modificata nel `docker-compose.yml`
 - Tutte le dipendenze Python sono gestite automaticamente dal Dockerfile
 - Il progetto usa UV come gestore di pacchetti per migliori performance
 
