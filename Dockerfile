@@ -7,9 +7,13 @@ WORKDIR /app
 
 RUN pip install --no-cache-dir uv
 
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml ./
 
-RUN uv sync --frozen --no-dev
+# genera lock dentro container
+RUN uv lock
+
+# installa dipendenze SENZA frozen
+RUN uv sync --no-dev
 
 COPY src ./src
 
