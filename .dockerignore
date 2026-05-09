@@ -17,4 +17,7 @@ build
 *.swp
 *.swo
 *~
+.pytest_cache
+*.log
+
 
