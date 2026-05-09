@@ -14,6 +14,9 @@ RUN pip install --no-cache-dir uv
 # Copia il file di progetto
 COPY pyproject.toml .
 
+# Genera uv.lock se non esiste
+RUN uv lock
+
 # Sincronizza le dipendenze usando uv
 RUN uv sync --frozen --no-dev
 
