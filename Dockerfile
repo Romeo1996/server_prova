@@ -9,8 +9,8 @@ RUN pip install --no-cache-dir uv
 
 COPY pyproject.toml ./
 
-# genera lock dentro container
-RUN uv lock
+# Copia il lockfile se esiste
+COPY uv.lock ./
 
 # installa dipendenze SENZA frozen
 RUN uv sync --no-dev
