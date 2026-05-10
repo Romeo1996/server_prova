@@ -14,12 +14,6 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8086/health"]
-      interval: 30s
-      timeout: 10s
-      start_period: 40s
-      retries: 5
     command: uv run uvicorn src.main:app --host 0.0.0.0 --port 8086
 
   adk-web:
