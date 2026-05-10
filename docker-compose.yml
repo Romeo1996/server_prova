@@ -3,25 +3,38 @@ version: '3.8'
 services:
   fastapi-server:
     build: .
-
     container_name: fastapi-server
-
     ports:
       - "8086:8086"
-
     environment:
       - PYTHONUNBUFFERED=1
-
     restart: unless-stopped
     logging:
-        driver: "json-file"
-        options:
-          max-size: "10m"
-          max-file: "3"
-
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8086/health"]
       interval: 30s
       timeout: 10s
       start_period: 40s
       retries: 5
+    command: uv run uvicorn src.main:app --host 0.0.0.0 --port 8086
+
+  adk-web:
+    build: .
+    container_name: adk-web
+    ports:
+      - "3000:3000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - GOOGLE_API_KEY=AIzaSyAAloEXyhR6d-fPnAE8XBsMp9ob4tYxb14
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    working_dir: /app/src/agents
+    command: uv run adk web --port 3000

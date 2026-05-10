@@ -1,7 +1,21 @@
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="FastAPI Hello World Server", version="1.0.0")
+app = FastAPI(
+    title="Hello World Server",
+    version="1.0.0",
+    description="Simple Hello World with FastAPI"
+)
+
+# Abilita CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/")

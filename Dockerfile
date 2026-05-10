@@ -7,6 +7,7 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+
 RUN pip install --no-cache-dir uv
 
 # Copia il file di progetto e lockfile
@@ -15,8 +16,9 @@ COPY pyproject.toml uv.lock ./
 # Installa in modalità deterministica (frozen)
 RUN uv sync --frozen --no-dev
 
+# Copia il codice sorgente
 COPY src ./src
+COPY main.py ./
 
-EXPOSE 8086
+EXPOSE 8086 3000
 
-CMD ["uv", "run", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8086"]
