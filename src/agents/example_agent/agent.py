@@ -4,7 +4,7 @@ Supporta: Google Gemini, Groq, OpenRouter
 """
 
 from google.adk.agents import LlmAgent
-from src.config import get_model_instance
+from config import get_model_instance
 
 # Ottiene l'istanza del modello configurato
 model_instance, llm_config = get_model_instance()
