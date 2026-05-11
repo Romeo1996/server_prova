@@ -3,10 +3,16 @@ Configurazione dei provider LLM
 """
 
 import os
+import sys
 import logging
 from google.adk.models.lite_llm import LiteLlm
 
 logger = logging.getLogger(__name__)
+
+# Assicura che src/ sia nel PYTHONPATH per importare models.py
+_src_dir = os.path.dirname(os.path.abspath(__file__))
+if _src_dir not in sys.path:
+    sys.path.insert(0, _src_dir)
 
 # Provider disponibili
 SUPPORTED_PROVIDERS = ["google", "groq", "openrouter", "openai", "anthropic"]
@@ -75,6 +81,7 @@ def get_model_instance():
     """
     Ottiene l'istanza del modello in base al provider configurato.
     Restituisce il modello nativo per Google o LiteLLM per gli altri provider.
+    L'import di models è lazy per evitare circolarità.
 
     Returns:
         tuple: (model_instance, llm_config)
@@ -86,14 +93,14 @@ def get_model_instance():
     if llm_config.provider == "google":
         model_instance = llm_config.model  # 'gemini-flash-latest'
         logger.info(f"Usando modello Google nativo: {model_instance}")
+    elif STRIP_THINKING:
+        # LiteLLM con strip del thinking
+        from models import StripThinkingLiteLlm
+        model_instance = StripThinkingLiteLlm(model=llm_config.model)
+        logger.info(f"Usando StripThinkingLiteLlm per provider: {llm_config.provider}")
     else:
-        # Per gli altri provider, usa LiteLLM (con o senza strip thinking)
-        if STRIP_THINKING:
-            from models import StripThinkingLiteLlm
-            model_instance = StripThinkingLiteLlm(model=llm_config.model)
-            logger.info(f"Usando StripThinkingLiteLlm per provider: {llm_config.provider}")
-        else:
-            model_instance = LiteLlm(model=llm_config.model)
-            logger.info(f"Usando LiteLLM per provider: {llm_config.provider}")
+        # LiteLLM standard
+        model_instance = LiteLlm(model=llm_config.model)
+        logger.info(f"Usando LiteLLM per provider: {llm_config.provider}")
 
     return model_instance, llm_config
