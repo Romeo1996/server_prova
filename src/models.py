@@ -22,9 +22,8 @@ class StripThinkingLiteLlm(BaseLlm):
     """
 
     def __init__(self, model: str, **kwargs):
-        super().__init__()
+        super().__init__(model=model)
         self._inner = LiteLlm(model=model, **kwargs)
-        self._model_name = model
         logger.info(f"StripThinkingLiteLlm inizializzato per modello: {model}")
 
     @staticmethod
