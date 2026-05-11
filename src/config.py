@@ -14,6 +14,9 @@ SUPPORTED_PROVIDERS = ["google", "groq", "openrouter", "openai", "anthropic"]
 # Provider predefinito
 DEFAULT_PROVIDER = os.environ.get("LLM_PROVIDER", "google").lower()
 
+# Flag per strip del thinking/reasoning dai modelli
+STRIP_THINKING = os.environ.get("STRIP_THINKING", "true").lower() in ("true", "1", "yes")
+
 # Modelli disponibili per provider
 MODELS = {
     "google": {
