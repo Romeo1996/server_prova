@@ -1,11 +1,27 @@
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+import os
+import logging
+from contextlib import asynccontextmanager
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan del server"""
+    google_api_key = os.environ.get("GOOGLE_API_KEY", "NOT SET")
+    logger.info(f"Google API Key: {google_api_key}")
+    yield
+
 
 app = FastAPI(
     title="Hello World Server",
     version="1.0.0",
-    description="Simple Hello World with FastAPI"
+    description="Simple Hello World with FastAPI",
+    lifespan=lifespan
 )
 
 # Abilita CORS
@@ -16,6 +32,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 
 @app.get("/")
@@ -31,8 +48,6 @@ async def health_check():
 
 
 if __name__ == "__main__":
-    google_api_key = os.environ.get("GOOGLE_API_KEY", "NOT SET")
-    logger.info(f"Google API Key: {google_api_key}")
 
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8086)
