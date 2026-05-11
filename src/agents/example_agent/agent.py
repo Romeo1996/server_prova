@@ -9,7 +9,6 @@ Il flag STRIP_THINKING (env var, default: true) controlla se attivare lo strip.
 
 from google.adk.agents import LlmAgent
 from config import get_model_instance, STRIP_THINKING
-from callbacks import strip_thinking_callback
 
 # Ottiene l'istanza del modello configurato
 model_instance, llm_config = get_model_instance()
@@ -24,6 +23,7 @@ agent_kwargs = dict(
 
 # Attiva il callback strip_thinking solo se il flag è true
 if STRIP_THINKING:
+    from callbacks import strip_thinking_callback
     agent_kwargs['after_model_callback'] = strip_thinking_callback
 
 # Crea l'agente con la configurazione selezionata

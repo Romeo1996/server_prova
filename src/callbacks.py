@@ -50,10 +50,14 @@ def strip_thinking_callback(
         f"su {len(original_parts)} totali. Mantenuti {len(filtered_parts)} part(s)."
     )
 
+    # Costruisce il nuovo Content preservando SEMPRE il role originale
+    # Se il role originale è None o vuoto, usa "model" come fallback
+    original_role = getattr(llm_response.content, 'role', None) or "model"
+
     return LlmResponse(
         content=types.Content(
-            role="model" if llm_response.content.role else None,
+            role=original_role,
             parts=filtered_parts,
         ),
-        grounding_metadata=llm_response.grounding_metadata,
+        grounding_metadata=getattr(llm_response, 'grounding_metadata', None),
     )
