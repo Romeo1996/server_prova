@@ -7,16 +7,13 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# Mostra tutti i comandi eseguiti durante il build
-RUN set -x
-
-RUN pip install --no-cache-dir uv
+RUN echo "=== Installing uv ===" && pip install --no-cache-dir uv
 
 # Copia il file di progetto e lockfile
 COPY pyproject.toml uv.lock ./
 
 # Installa in modalità deterministica (frozen)
-RUN uv sync --frozen --no-dev
+RUN echo "=== Syncing dependencies with uv ===" && uv sync --frozen --no-dev
 
 # Copia il codice sorgente
 COPY src ./src
