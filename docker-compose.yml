@@ -23,7 +23,7 @@ services:
       - "3000:3000"
     environment:
       - PYTHONUNBUFFERED=1
-      - GOOGLE_API_KEY=${GOOGLE_API_KEY_NEW}
+      - GOOGLE_API_KEY_NEW=${GOOGLE_API_KEY_NEW}
     restart: unless-stopped
     logging:
       driver: "json-file"
