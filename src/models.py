@@ -5,30 +5,43 @@ Contiene wrapper che aggiungono funzionalità come lo strip del thinking/reasoni
 
 import logging
 from typing import AsyncGenerator
+from google.adk.models import BaseLlm, LlmResponse
 from google.adk.models.lite_llm import LiteLlm
-from google.adk.models import LlmResponse
 from google.genai import types
+from pydantic import Field
+from pydantic import PrivateAttr
 
 logger = logging.getLogger(__name__)
 
 
-class StripThinkingLiteLlm(LiteLlm):
+class StripThinkingLiteLlm(BaseLlm):
     """
-    Wrapper di LiteLlm che rimuove automaticamente i 'thought parts'
-    dalla risposta del modello (DeepSeek R1, Qwen 3, Claude, ecc.).
+    Wrapper di LiteLlm conforme a BaseLlm che rimuove automaticamente
+    i 'thought parts' dalla risposta del modello (DeepSeek R1, Qwen 3, Claude, ecc.).
 
     ADK converte il thinking/reasoning in Part(thought=True).
-    Questo modello li filtra prima che arrivino all'agente,
-    senza bisogno di after_model_callback sull'agente stesso.
+    Questo wrapper li filtra prima che arrivino all'agente.
+
+    Usa composizione (has-a) invece di ereditarietà (is-a) per evitare
+    problemi di serializzazione Pydantic con LiteLlm.
     """
 
+    model_name: str
+    _inner: LiteLlm = PrivateAttr()
+
     def __init__(self, model: str, **kwargs):
-        super().__init__(model=model, **kwargs)
+        super().__init__(model_name=model)
+        self._inner = LiteLlm(model=model, **kwargs)
         logger.info(f"StripThinkingLiteLlm inizializzato per modello: {model}")
+
+    @property
+    def model(self) -> str:
+        """Restituisce il nome del modello."""
+        return self.model_name
 
     @staticmethod
     def _filter_thought_parts(llm_response: LlmResponse) -> LlmResponse:
-        """Filtra i thought parts da una risposta LLM. Restituisce la risposta filtrata."""
+        """Filtra i thought parts da una risposta LLM."""
         if not llm_response or not llm_response.content or not llm_response.content.parts:
             return llm_response
 
@@ -70,5 +83,5 @@ class StripThinkingLiteLlm(LiteLlm):
         """
         Genera contenuto e filtra i thought parts da ogni evento dello stream.
         """
-        async for event in super().generate_content_async(*args, **kwargs):
+        async for event in self._inner.generate_content_async(*args, **kwargs):
             yield self._filter_thought_parts(event)
