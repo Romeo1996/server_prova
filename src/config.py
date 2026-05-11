@@ -22,7 +22,7 @@ MODELS = {
         "env_key": "GOOGLE_API_KEY",
     },
     "groq": {
-        "model": "qwen/qwen3-32b",
+        "model": "groq/qwen/qwen3-32b",
         "display": "Groq Qwen 32B",
         "env_key": "GROQ_API_KEY",
     },
