@@ -6,14 +6,19 @@ services:
     container_name: fastapi-server
     ports:
       - "8086:8086"
-    environment:
-      - PYTHONUNBUFFERED=1
+    env_file: .env
     restart: unless-stopped
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8086/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 120s
+      retries: 5
     command: uv run uvicorn src.main:app --host 0.0.0.0 --port 8086
 
   adk-web:
@@ -21,9 +26,7 @@ services:
     container_name: adk-web
     ports:
       - "3000:3000"
-    environment:
-      - PYTHONUNBUFFERED=1
-      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+    env_file: .env
     restart: unless-stopped
     logging:
       driver: "json-file"

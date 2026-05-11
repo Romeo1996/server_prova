@@ -1,15 +1,19 @@
 """
-Simple Example ADK Agent - No Tools
+Example ADK Agent with LiteLLM - Multi-Provider Support
+Supporta: Google Gemini, Groq, OpenRouter, OpenAI, Anthropic
 """
 
 from google.adk.agents import LlmAgent
+from src.config import get_model_instance
 
+# Ottiene l'istanza del modello configurato
+model_instance, llm_config = get_model_instance()
 
-# Create the simplest root agent - no tools
+# Crea l'agente con il modello configurato
 root_agent = LlmAgent(
-    model='gemini-flash-latest',
-    name='example_simple_agent',
-    description='Un semplice agente di esempio senza tool.',
-    instruction='Sei un assistente utile. Rispondi alle domande dell\'utente in modo chiaramente e conciso.',
+    model=model_instance,
+    name='example_litellm_agent',
+    description=f'Agente configurabile con {llm_config.display_name}',
+    instruction=f'Sei un assistente utile alimentato da {llm_config.display_name}. Rispondi alle domande dell\'utente in modo chiaro e conciso.',
 )
 
