@@ -27,7 +27,7 @@ MODELS = {
         "env_key": "GROQ_API_KEY",
     },
     "openrouter": {
-        "model": "google/gemma-4-31b-it:free",
+        "model": "openrouter/google/gemma-4-31b-it:free",
         "display": "OpenRouter Google Gemma 4 31B",
         "env_key": "OPENROUTER_API_KEY",
     },
