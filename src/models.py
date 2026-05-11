@@ -8,36 +8,24 @@ from typing import AsyncGenerator
 from google.adk.models import BaseLlm, LlmResponse
 from google.adk.models.lite_llm import LiteLlm
 from google.genai import types
-from pydantic import Field
-from pydantic import PrivateAttr
 
 logger = logging.getLogger(__name__)
 
 
 class StripThinkingLiteLlm(BaseLlm):
     """
-    Wrapper di LiteLlm conforme a BaseLlm che rimuove automaticamente
-    i 'thought parts' dalla risposta del modello (DeepSeek R1, Qwen 3, Claude, ecc.).
+    Wrapper di LiteLlm che rimuove automaticamente i 'thought parts'
+    dalla risposta del modello (DeepSeek R1, Qwen 3, Claude, ecc.).
 
     ADK converte il thinking/reasoning in Part(thought=True).
     Questo wrapper li filtra prima che arrivino all'agente.
-
-    Usa composizione (has-a) invece di ereditarietà (is-a) per evitare
-    problemi di serializzazione Pydantic con LiteLlm.
     """
 
-    model_name: str
-    _inner: LiteLlm = PrivateAttr()
-
     def __init__(self, model: str, **kwargs):
-        super().__init__(model_name=model)
+        super().__init__()
         self._inner = LiteLlm(model=model, **kwargs)
+        self._model_name = model
         logger.info(f"StripThinkingLiteLlm inizializzato per modello: {model}")
-
-    @property
-    def model(self) -> str:
-        """Restituisce il nome del modello."""
-        return self.model_name
 
     @staticmethod
     def _filter_thought_parts(llm_response: LlmResponse) -> LlmResponse:
