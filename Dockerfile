@@ -7,6 +7,8 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+# Mostra tutti i comandi eseguiti durante il build
+RUN set -x
 
 RUN pip install --no-cache-dir uv
 
@@ -24,4 +26,3 @@ EXPOSE 8086 3000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=5 \
     CMD curl -f http://localhost:8086/health || exit 1
-

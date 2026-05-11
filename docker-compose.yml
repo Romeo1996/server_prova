@@ -3,6 +3,7 @@ version: '3.8'
 services:
   fastapi-server:
     build: .
+    image: adk-server:latest
     container_name: fastapi-server
     ports:
       - "8086:8086"
@@ -22,7 +23,7 @@ services:
     command: uv run uvicorn src.main:app --host 0.0.0.0 --port 8086
 
   adk-web:
-    build: .
+    image: adk-server:latest
     container_name: adk-web
     ports:
       - "3000:3000"
@@ -35,3 +36,5 @@ services:
         max-file: "3"
     working_dir: /app/src/agents
     command: uv run adk web --host 0.0.0.0 --port 3000
+    depends_on:
+      - fastapi-server
