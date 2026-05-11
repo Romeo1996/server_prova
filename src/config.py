@@ -22,13 +22,13 @@ MODELS = {
         "env_key": "GOOGLE_API_KEY",
     },
     "groq": {
-        "model": "groq/mixtral-8x7b-32768",
-        "display": "Groq Mixtral",
+        "model": "qwen/qwen3-32b",
+        "display": "Groq Qwen 32B",
         "env_key": "GROQ_API_KEY",
     },
     "openrouter": {
-        "model": "openrouter/mistral-7b-instruct",
-        "display": "OpenRouter Mistral",
+        "model": "google/gemma-4-31b-it:free",
+        "display": "OpenRouter Google Gemma 4 31B",
         "env_key": "OPENROUTER_API_KEY",
     },
 }
