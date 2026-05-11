@@ -87,8 +87,13 @@ def get_model_instance():
         model_instance = llm_config.model  # 'gemini-flash-latest'
         logger.info(f"Usando modello Google nativo: {model_instance}")
     else:
-        # Per gli altri provider, usa LiteLLM
-        model_instance = LiteLlm(model=llm_config.model)
-        logger.info(f"Usando LiteLLM per provider: {llm_config.provider}")
+        # Per gli altri provider, usa LiteLLM (con o senza strip thinking)
+        if STRIP_THINKING:
+            from models import StripThinkingLiteLlm
+            model_instance = StripThinkingLiteLlm(model=llm_config.model)
+            logger.info(f"Usando StripThinkingLiteLlm per provider: {llm_config.provider}")
+        else:
+            model_instance = LiteLlm(model=llm_config.model)
+            logger.info(f"Usando LiteLLM per provider: {llm_config.provider}")
 
     return model_instance, llm_config

@@ -2,30 +2,29 @@
 Example ADK Agent with LiteLLM - Multi-Provider Support
 Supporta: Google Gemini, Groq, OpenRouter
 
-Include after_model_callback opzionale per rimuovere il thinking/reasoning
-dalla risposta dei modelli che lo supportano (DeepSeek R1, Qwen 3, Claude, ecc.).
+Include strip del thinking/reasoning opzionale dalla risposta dei modelli
+(DeepSeek R1, Qwen 3, Claude, ecc.).
 Il flag STRIP_THINKING (env var, default: true) controlla se attivare lo strip.
+
+Lo strip è centralizzato in src/models.py (StripThinkingLiteLlm) e src/callbacks.py.
+Viene applicato a livello di modello, non di agente, per evitare problemi
+di serializzazione Pydantic col Visual Builder di ADK.
 """
 
 from google.adk.agents import LlmAgent
-from config import get_model_instance, STRIP_THINKING
+from config import get_model_instance
 
 # Ottiene l'istanza del modello configurato
+# Se STRIP_THINKING=True, model_instance è un StripThinkingLiteLlm
+# che filtra automaticamente i thought parts
 model_instance, llm_config = get_model_instance()
 
-# Costruisce i parametri dell'agente
-agent_kwargs = dict(
+# Crea l'agente con il modello configurato
+# NOTA: after_model_callback NON viene usato.
+# Lo strip del thinking è gestito internamente dal modello (StripThinkingLiteLlm).
+root_agent = LlmAgent(
     model=model_instance,
     name='example_litellm_agent',
     description=f'Agente configurabile con {llm_config.display_name}',
     instruction=f'Sei un assistente utile alimentato da {llm_config.display_name}. Rispondi alle domande dell\'utente in modo chiaro e conciso.',
 )
-
-# Attiva il callback strip_thinking solo se il flag è true
-if STRIP_THINKING:
-    from callbacks import strip_thinking_callback
-    agent_kwargs['after_model_callback'] = strip_thinking_callback
-
-# Crea l'agente con la configurazione selezionata
-root_agent = LlmAgent(**agent_kwargs)
-
