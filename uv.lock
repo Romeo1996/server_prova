@@ -3059,6 +3059,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "google-adk" },
     { name = "litellm" },
+    { name = "sloppy-xml" },
     { name = "uvicorn" },
 ]
 
@@ -3067,6 +3068,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.136.1" },
     { name = "google-adk", specifier = ">=1.33.0" },
     { name = "litellm", specifier = ">=1.0.0" },
+    { name = "sloppy-xml", specifier = ">=0.3.1" },
     { name = "uvicorn", specifier = ">=0.46.0" },
 ]
 
@@ -3086,6 +3088,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/94/e7/b2c673351809dca68a0e064b6af791aa332cf192da575fd474ed7d6f16a2/six-1.17.0.tar.gz", hash = "sha256:ff70335d468e7eb6ec65b95b99d3a2836546063f63acc5171de367e834932a81", size = 34031, upload-time = "2024-12-04T17:35:28.174Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl", hash = "sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274", size = 11050, upload-time = "2024-12-04T17:35:26.475Z" },
+]
+
+[[package]]
+name = "sloppy-xml"
+version = "0.3.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/30/aa/e9473a1d98bf5a5650e6de6f88f21bd3ae9ad47b4219522904d8f09431c0/sloppy_xml-0.3.1.tar.gz", hash = "sha256:c7973d8831ff3d452521da4da61bf1a96b12ffc0d560e2e6796d934d84f8d566", size = 29349, upload-time = "2026-01-28T14:23:05.186Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9b/d9/cfcfed8984efae99ab794113ca08ac633d436b7d6e29e9bf62094dab0dd9/sloppy_xml-0.3.1-py3-none-any.whl", hash = "sha256:a8c81b548f957cd4ae0e21b017cf9e8405be6350ce6ee8dad9a06b338894e3db", size = 20382, upload-time = "2026-01-28T14:23:03.751Z" },
 ]
 
 [[package]]

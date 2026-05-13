@@ -9,4 +9,5 @@ dependencies = [
     "uvicorn>=0.46.0",
     "google-adk>=1.33.0",
     "litellm>=1.0.0",
+    "sloppy-xml>=0.3.1",
 ]
