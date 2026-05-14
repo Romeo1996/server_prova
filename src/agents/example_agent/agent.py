@@ -4,7 +4,7 @@ Supporta: Google Gemini, Groq, OpenRouter
 
 Include strip del thinking/reasoning opzionale dalla risposta dei modelli
 (DeepSeek R1, Qwen 3, Claude, ecc.).
-Il flag STRIP_THINKING (env var, default: true) controlla se attivare lo strip.
+Il flag STRIP_THINKIN/api/adkG (env var, default: true) controlla se attivare lo strip.
 
 Lo strip è centralizzato in src/models.py (StripThinkingLiteLlm) e src/callbacks.py.
 Viene applicato a livello di modello, non di agente, per evitare problemi

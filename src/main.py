@@ -6,8 +6,20 @@ import logging
 from contextlib import asynccontextmanager
 
 from google.adk.apps import App as AdkApp, ResumabilityConfig
+from google.adk.events import Event as ADKEvent
 from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint
 from agents.example_agent.agent import root_agent
+
+# Monkey-patch: ADK 1.33+ emette partial=None invece di partial=True,
+# causando is_final_response()=True (not None=True) su ogni chunk.
+_orig_is_final = ADKEvent.is_final_response
+
+def _patched_is_final(self):
+    if self.partial is None:
+        return False
+    return _orig_is_final(self)
+
+ADKEvent.is_final_response = _patched_is_final
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
