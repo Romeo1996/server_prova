@@ -5,6 +5,10 @@ import os
 import logging
 from contextlib import asynccontextmanager
 
+from google.adk.apps import App as AdkApp, ResumabilityConfig
+from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint
+from agents.example_agent.agent import root_agent
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -41,6 +45,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# --- AG-UI Protocol Endpoint ---
+adk_app = AdkApp(
+    name="example_app",
+    root_agent=root_agent,
+    resumability_config=ResumabilityConfig(is_resumable=True),
+)
+
+adk_agent = ADKAgent.from_app(
+    adk_app,
+    user_id="default_user",
+    plugin_close_timeout=10.0,
+)
+
+add_adk_fastapi_endpoint(app, adk_agent, path="/chat")
+# --------------------------------
 
 
 @app.get("/")

@@ -10,4 +10,5 @@ dependencies = [
     "google-adk>=1.33.0",
     "litellm>=1.0.0",
     "sloppy-xml>=0.3.1",
+    "ag-ui-adk>=0.6.0",
 ]

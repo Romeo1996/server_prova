@@ -25,8 +25,8 @@ Il progetto fornisce due servizi Docker:
 
 | Servizio | Porta | Descrizione |
 |----------|-------|-------------|
-| **fastapi-server** | `8086` | Server FastAPI con health check ed endpoint REST |
-| **adk-web** | `3000` | Interfaccia web ADK per eseguire e costruire agenti |
+| **fastapi-server** | `8086` | Server FastAPI con health check, REST + endpoint AG-UI `/chat` |
+| **adk-web** | `3000` | Interfaccia web ADK per eseguire e costruire agenti (test) |
 
 ## Struttura del progetto
 
@@ -71,18 +71,26 @@ LLM_PROVIDER=google          # google | groq | openrouter
 GOOGLE_API_KEY=your_key_here
 GROQ_API_KEY=your_key_here
 OPENROUTER_API_KEY=your_key_here
-STRIP_THINKING=true          # rimuove il thinking/reasoning dall'output
+STRIP_THINKING=adaptive      # force | adaptive | none
 ```
 
 ## Strip Thinking/Reasoning
 
 I modelli LLM moderni (DeepSeek R1, Qwen 3, Claude, ecc.) restituiscono spesso il **ragionamento interno** (*thinking/reasoning*) insieme alla risposta finale. Questo può essere utile per debug ma indesiderato nell'output visivo all'utente.
 
+### Modalità di strip
+
+`STRIP_THINKING` accetta tre valori tramite l'enum `StripMode` in `src/config.py`:
+
+| Valore | Default | Comportamento |
+|--------|---------|---------------|
+| `adaptive` | ✅ | Applica strip solo se il modello ha `strip_thinking=True` in `MODELS` (es. Qwen, Nemotron) |
+| `force` | | Applica sempre `StripThinkingLiteLlm` a prescindere dal modello |
+| `none` | | Usa `LiteLlm` standard, nessuno strip |
+
 ### Come funziona
 
-Il flag `STRIP_THINKING` (default: `true`) controlla se rimuovere automaticamente il thinking dall'output:
-
-1. **`src/config.py`** — Legge `STRIP_THINKING` dall'env var e passa il modello appropriato
+1. **`src/config.py`** — Legge `STRIP_THINKING` dall'env var e sceglie il modello wrapper
 2. **`src/models.py`** — `StripThinkingLiteLlm` wrappa `LiteLlm` e filtra due formati di thinking:
    - **Formato strutturato**: `Part(thought=True)` — usato da ADK per Claude (thinking_blocks), DeepSeek, Qwen via LiteLLM
    - **Formato testuale**: tag XML `<think>...</think>` — usato da Qwen 3 su Groq, DeepSeek R1
@@ -90,10 +98,12 @@ Il flag `STRIP_THINKING` (default: `true`) controlla se rimuovere automaticament
 
 Il filtro agisce a **livello di modello** (non di agente), evitando problemi di serializzazione Pydantic con il Visual Builder di ADK.
 
-### Disabilitare lo strip
+### Esempi
 
 ```bash
-STRIP_THINKING=false
+STRIP_THINKING=force       # strip forzato per tutti i modelli
+STRIP_THINKING=adaptive    # strip solo per modelli che producono thinking (default)
+STRIP_THINKING=none        # nessuno strip, output grezzo
 ```
 
 ## Avvio
@@ -136,6 +146,8 @@ uv run adk web --host 0.0.0.0 --port 3000
 |----------|--------|-------------|
 | `/` | GET | Health check semplice |
 | `/health` | GET | Health check dettagliato |
+| `/chat` | POST / GET | **AG-UI Protocol endpoint** — streaming SSE per frontend CopilotKit. POST invia messaggi, GET riceve eventi in tempo reale |
+| `/agents/state` | POST | Recupera storico e stato di un thread (AG-UI) |
 
 ### ADK Web (`:3000`)
 
@@ -173,6 +185,49 @@ root_agent = LlmAgent(
 
 ADK Web rileverà automaticamente il nuovo agente.
 
+## AG-UI Protocol
+
+Il server espone un endpoint **AG-UI** su `POST/GET /chat` per connettere frontend CopilotKit (React) al backend ADK senza scrivere API manuali.
+
+### Endpoint AG-UI
+
+| Endpoint | Metodo | Ruolo |
+|----------|--------|-------|
+| `/chat` | POST | Invia messaggio utente, avvia/riprende run agente |
+| `/chat` | GET | SSE stream — eventi in tempo reale (testo, tool call, HITL) |
+| `/agents/state` | POST | Recupera storico e stato di un thread |
+
+Il protocollo gestisce automaticamente:
+- **Sessioni** (thread_id → session_id)
+- **Streaming SSE** (token, eventi, tool call)
+- **Human-in-the-Loop** (interrupt, approve/reject/edit)
+- **Stato condiviso** bidirezionale agente ↔ frontend
+- **Tool call lato frontend** (FE esegue azioni per conto dell'agente)
+
+### Architettura
+
+```
+Frontend (React + CopilotKit)
+  ↕ AG-UI Protocol (SSE) — /chat
+FastAPI + ag_ui_adk middleware
+  ↕ ADK interno
+ADK LlmAgent (con AGUIToolset + StripThinkingLiteLlm)
+```
+
+### Collegamento frontend
+
+Il FE CopilotKit punta `HttpAgent` a `http://localhost:8086/chat`:
+
+```typescript
+import { HttpAgent } from "@ag-ui/client";
+
+const runtime = new CopilotRuntime({
+  agents: {
+    my_agent: new HttpAgent({ url: "http://localhost:8086/chat/" }),
+  },
+});
+```
+
 ## Variabili d'ambiente
 
 | Variabile | Default | Descrizione |
@@ -181,7 +236,7 @@ ADK Web rileverà automaticamente il nuovo agente.
 | `GOOGLE_API_KEY` | — | API Key per Google Gemini |
 | `GROQ_API_KEY` | — | API Key per Groq |
 | `OPENROUTER_API_KEY` | — | API Key per OpenRouter |
-| `STRIP_THINKING` | `true` | Rimuove il thinking/reasoning dall'output |
+| `STRIP_THINKING` | `adaptive` | Modalità strip: `force` (sempre), `adaptive` (solo se supportato), `none` (mai) |
 | `PYTHONUNBUFFERED` | `1` | Output Python senza buffer |
 
 ## Dipendenze
@@ -191,3 +246,4 @@ ADK Web rileverà automaticamente il nuovo agente.
 - [google-adk](https://adk.dev/) — Google Agent Development Kit
 - [LiteLLM](https://docs.litellm.ai/) — Interfaccia unificata per 100+ LLM
 - [uv](https://docs.astral.sh/uv/) — Package manager deterministico
+- [ag-ui-adk](https://pypi.org/project/ag_ui_adk/) — ADK Middleware per AG-UI Protocol

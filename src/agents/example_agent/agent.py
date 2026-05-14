@@ -13,6 +13,7 @@ di serializzazione Pydantic col Visual Builder di ADK.
 
 from google.adk.agents import LlmAgent
 from config import get_model_instance
+from ag_ui_adk import AGUIToolset
 
 # Ottiene l'istanza del modello configurato
 # Se STRIP_THINKING=True, model_instance è un StripThinkingLiteLlm
@@ -27,4 +28,5 @@ root_agent = LlmAgent(
     name='example_litellm_agent',
     description=f'Agente configurabile con {llm_config.display_name}',
     instruction=f'Sei un assistente utile alimentato da {llm_config.display_name}. Rispondi alle domande dell\'utente in modo chiaro e conciso.',
+    tools=[AGUIToolset()],
 )
