@@ -8,10 +8,11 @@ from contextlib import asynccontextmanager
 from google.adk.apps import App as AdkApp, ResumabilityConfig
 from google.adk.events import Event as ADKEvent
 from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint
+from ag_ui_adk.event_translator import EventTranslator
 from agents.example_agent.agent import root_agent
 
-# Monkey-patch: ADK 1.33+ emette partial=None invece di partial=True,
-# causando is_final_response()=True (not None=True) su ogni chunk.
+# Fix ADK 1.33: partial=None invece di partial=True
+# 1) is_final_response() torna True quando not None=True → chiudeva ogni chunk
 _orig_is_final = ADKEvent.is_final_response
 
 def _patched_is_final(self):
@@ -20,6 +21,17 @@ def _patched_is_final(self):
     return _orig_is_final(self)
 
 ADKEvent.is_final_response = _patched_is_final
+
+# 2) partial=None in _translate_text_content causava content skip (not None=True)
+_orig_translate_text = EventTranslator._translate_text_content
+
+async def _patched_translate_text(self, adk_event, thread_id, run_id):
+    if getattr(adk_event, 'partial', False) is None:
+        adk_event.partial = True
+    async for event in _orig_translate_text(self, adk_event, thread_id, run_id):
+        yield event
+
+EventTranslator._translate_text_content = _patched_translate_text
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
