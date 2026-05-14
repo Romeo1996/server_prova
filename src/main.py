@@ -9,6 +9,7 @@ from google.adk.apps import App as AdkApp, ResumabilityConfig
 from google.adk.events import Event as ADKEvent
 from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint
 from ag_ui_adk.event_translator import EventTranslator
+from ag_ui.core import TextMessageContentEvent
 from agents.example_agent.agent import root_agent
 
 # Fix ADK 1.33: partial=None invece di partial=True
@@ -22,18 +23,19 @@ def _patched_is_final(self):
 
 ADKEvent.is_final_response = _patched_is_final
 
-# 2) partial=None in _translate_text_content causava content skip (not None=True)
-#    L'evento finale (consolidated) si riconosce da finish_reason ≠ None
+# 2) partial=None causava content skip (not None=True).
+#    Inoltre l'ultimo evento ADK contiene il testo completo (consolidated)
+#    che va skippato per evitare duplicati.
 _orig_translate_text = EventTranslator._translate_text_content
 
 async def _patched_translate_text(self, adk_event, thread_id, run_id):
-    partial_val = getattr(adk_event, 'partial', False)
-    if partial_val is None:
-        if bool(getattr(adk_event, 'finish_reason', None)):
-            adk_event.partial = False  # evento finale → chiude stream, salta consolidated
-        else:
-            adk_event.partial = True   # chunk streaming → accumula
+    if getattr(adk_event, 'partial', False) is None:
+        adk_event.partial = True
+    saved_text = self._current_stream_text
     async for event in _orig_translate_text(self, adk_event, thread_id, run_id):
+        if isinstance(event, TextMessageContentEvent) and saved_text and event.delta.startswith(saved_text):
+            self._current_stream_text = saved_text
+            continue
         yield event
 
 EventTranslator._translate_text_content = _patched_translate_text
