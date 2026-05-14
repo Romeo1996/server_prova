@@ -23,11 +23,16 @@ def _patched_is_final(self):
 ADKEvent.is_final_response = _patched_is_final
 
 # 2) partial=None in _translate_text_content causava content skip (not None=True)
+#    L'evento finale (consolidated) si riconosce da finish_reason ≠ None
 _orig_translate_text = EventTranslator._translate_text_content
 
 async def _patched_translate_text(self, adk_event, thread_id, run_id):
-    if getattr(adk_event, 'partial', False) is None:
-        adk_event.partial = True
+    partial_val = getattr(adk_event, 'partial', False)
+    if partial_val is None:
+        if bool(getattr(adk_event, 'finish_reason', None)):
+            adk_event.partial = False  # evento finale → chiude stream, salta consolidated
+        else:
+            adk_event.partial = True   # chunk streaming → accumula
     async for event in _orig_translate_text(self, adk_event, thread_id, run_id):
         yield event
 
