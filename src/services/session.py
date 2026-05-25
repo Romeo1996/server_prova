@@ -4,6 +4,7 @@ from typing import Optional
 
 from google.adk.sessions import BaseSessionService
 from google.adk.events import Event, EventActions
+from ag_ui_adk.event_translator import adk_events_to_messages
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,62 @@ def _extract_relevant_state(state_dict: dict) -> dict | None:
         if k.startswith("__fork") or k in (THREAD_TITLE_KEY,)
     }
     return relevant if relevant else None
+
+
+def _assemble_thread_messages(events: list) -> list[dict]:
+    """Convert AG-UI events to ThreadMessage-compatible dicts.
+
+    Assembles ``text_start`` / ``text_content`` / ``text_end`` sequences
+    into single assistant messages; keeps ``user`` events as-is.
+    """
+    result: list[dict] = []
+    buf: dict[str, list[str]] = {}
+
+    for event in events:
+        etype = getattr(event, "type", None)
+        mid = getattr(event, "message_id", None)
+
+        if etype == "user":
+            content = []
+            for part in getattr(event, "content", []) or []:
+                d = part.model_dump() if hasattr(part, "model_dump") else dict(part)
+                content.append(d)
+            result.append({"id": mid, "role": "user", "content": content})
+
+        elif etype == "tool_call":
+            content = [{
+                "type": "tool_call",
+                "toolCallId": getattr(event, "tool_call_id", ""),
+                "toolName": getattr(event, "tool_name", ""),
+                "args": getattr(event, "args", "{}"),
+            }]
+            result.append({"id": mid, "role": "assistant", "content": content})
+
+        elif etype == "tool_result":
+            content = [{
+                "type": "tool_result",
+                "toolCallId": getattr(event, "tool_call_id", ""),
+                "result": getattr(event, "content", []),
+            }]
+            result.append({"id": mid, "role": "tool", "content": content})
+
+        elif etype == "text_start":
+            buf[mid] = []
+
+        elif etype == "text_content":
+            if mid in buf:
+                buf[mid].append(getattr(event, "delta", ""))
+
+        elif etype == "text_end":
+            texts = buf.pop(mid, None)
+            if texts is not None:
+                result.append({
+                    "id": mid,
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "".join(texts)}],
+                })
+
+    return result
 
 
 class AdkSessionService:
@@ -120,6 +177,22 @@ class AdkSessionService:
             except Exception:
                 continue
         return await self._find_session_by_thread_id(thread_id, user_ids)
+
+    async def get_thread_messages(self, thread_id: str, user_id: str) -> Optional[dict]:
+        """Return thread data with assembled messages, or None if not found."""
+        session = await self.get_session(thread_id, user_id)
+        if not session:
+            return None
+        state_dict = _state_to_dict(session.state)
+        events = getattr(session, "events", []) or []
+        agui_msgs = adk_events_to_messages(events)
+        messages = _assemble_thread_messages(agui_msgs)
+        return {
+            "id": thread_id,
+            "title": state_dict.get(THREAD_TITLE_KEY),
+            "state": state_dict,
+            "messages": messages,
+        }
 
     async def update_thread_metadata(
         self, thread_id: str, user_id: str, metadata: dict

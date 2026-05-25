@@ -43,6 +43,16 @@ def create_thread_router(session_service: AdkSessionService) -> APIRouter:
             ]
         )
 
+    @router.get("/threads/{thread_id}")
+    async def get_thread(
+        thread_id: str,
+        user_id: str = Query(..., alias="userId"),
+    ):
+        data = await session_service.get_thread_messages(thread_id, user_id)
+        if not data:
+            raise HTTPException(status_code=404, detail="Thread not found")
+        return data
+
     @router.patch("/threads/{thread_id}")
     async def update_thread(
         thread_id: str,

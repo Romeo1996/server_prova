@@ -14,6 +14,7 @@ di serializzazione Pydantic col Visual Builder di ADK.
 from google.adk.agents import LlmAgent
 from config import get_model_instance
 from ag_ui_adk import AGUIToolset
+from src.tools.thread_title import set_thread_title
 
 # Ottiene l'istanza del modello configurato
 # Se STRIP_THINKING=True, model_instance è un StripThinkingLiteLlm
@@ -27,6 +28,12 @@ root_agent = LlmAgent(
     model=model_instance,
     name='example_litellm_agent',
     description=f'Agente configurabile con {llm_config.display_name}',
-    instruction=f'Sei un assistente utile alimentato da {llm_config.display_name}. Rispondi alle domande dell\'utente in modo chiaro e conciso.',
-    tools=[AGUIToolset()],
+    instruction=(
+        f'Sei un assistente utile alimentato da {llm_config.display_name}. '
+        "Rispondi alle domande dell'utente in modo chiaro e conciso.\n\n"
+        "Dopo aver risposto alla prima domanda dell'utente, usa lo strumento "
+        "'set_thread_title' per impostare un titolo breve (3-6 parole) che "
+        "riassuma l'argomento principale della conversazione."
+    ),
+    tools=[AGUIToolset(), set_thread_title],
 )
