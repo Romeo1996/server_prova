@@ -1,11 +1,10 @@
-import json
 import logging
 import time
-import uuid
 from typing import Optional
 
 from google.adk.sessions import BaseSessionService
 from google.adk.events import Event, EventActions
+from ag_ui_adk.event_translator import adk_events_to_messages
 
 logger = logging.getLogger(__name__)
 
@@ -38,117 +37,62 @@ def _extract_relevant_state(state_dict: dict) -> dict | None:
     return relevant if relevant else None
 
 
-def _adk_events_to_thread_messages(events: list) -> list[dict]:
-    """Convert raw ADK events directly to ThreadMessage-compatible dicts.
+def _message_to_thread_dict(msg) -> dict | None:
+    """Convert an AG-UI Message to a ThreadMessage-compatible dict."""
+    from ag_ui.core.types import UserMessage, AssistantMessage, ToolMessage, ReasoningMessage
 
-    Bypasses ``adk_events_to_messages`` because the streaming workaround
-    in ``main.py`` sets ``partial=True`` on every stored event, which that
-    library function interprets as "skip this event".
+    if isinstance(msg, UserMessage):
+        content = []
+        if msg.content:
+            if isinstance(msg.content, str):
+                content.append({"type": "text", "text": msg.content})
+            else:
+                for part in msg.content:
+                    if hasattr(part, "type") and part.type == "text":
+                        content.append({"type": "text", "text": part.text})
+                    else:
+                        content.append(part.model_dump() if hasattr(part, "model_dump") else {"type": "unknown"})
+        return {"id": msg.id, "role": "user", "content": content}
 
-    Strategy: group consecutive events by ``author`` and concatenate their
-    text parts, then emit one message per group.  This collapses streaming
-    chunks into a single assistant message while preserving user/tool events.
+    elif isinstance(msg, AssistantMessage):
+        content = []
+        if msg.content:
+            content.append({"type": "text", "text": msg.content})
+        if msg.tool_calls:
+            for tc in msg.tool_calls:
+                content.append({
+                    "type": "tool_call",
+                    "toolCallId": tc.id,
+                    "toolName": tc.function.name,
+                    "args": tc.function.arguments,
+                })
+        return {"id": msg.id, "role": "assistant", "content": content}
+
+    elif isinstance(msg, ToolMessage):
+        return {
+            "id": msg.id,
+            "role": "tool",
+            "content": [{"type": "tool_result", "toolCallId": msg.tool_call_id, "result": msg.content}],
+        }
+
+    elif isinstance(msg, ReasoningMessage):
+        return None
+
+    return None
+
+
+def _assemble_thread_messages(msgs: list) -> list[dict]:
+    """Convert AG-UI Message objects to ThreadMessage-compatible dicts.
+
+    ``msgs`` should be the output of ``adk_events_to_messages`` (list of
+    ``UserMessage``, ``AssistantMessage``, ``ToolMessage``, etc.).
     """
     result: list[dict] = []
-
-    for event in events:
-        content = getattr(event, "content", None)
-        if not content or not getattr(content, "parts", None):
-            continue
-
-        author = getattr(event, "author", None)
-        if not author:
-            continue
-
-        parts = content.parts
-        event_id = getattr(event, "id", None) or str(uuid.uuid4())
-
-        # --- User message ------------------------------------------------
-        if author == "user":
-            text_parts = []
-            for p in parts:
-                if getattr(p, "text", None) and not getattr(p, "thought", False):
-                    text_parts.append(p.text)
-            if text_parts:
-                result.append({
-                    "id": event_id,
-                    "role": "user",
-                    "content": [{"type": "text", "text": "".join(text_parts)}],
-                })
-            continue
-
-        # --- Function response (tool result) -----------------------------
-        func_responses = []
-        for p in parts:
-            fr = getattr(p, "function_response", None)
-            if fr:
-                func_responses.append(fr)
-
-        if func_responses:
-            for fr in func_responses:
-                resp_text = ""
-                if hasattr(fr, "response"):
-                    resp_text = json.dumps(fr.response) if not isinstance(fr.response, str) else fr.response
-                result.append({
-                    "id": str(uuid.uuid4()),
-                    "role": "tool",
-                    "content": [{
-                        "type": "tool_result",
-                        "toolCallId": getattr(fr, "id", ""),
-                        "result": resp_text,
-                    }],
-                })
-            continue
-
-        # --- Assistant message (text + function calls) -------------------
-        text_parts = []
-        func_calls = []
-        for p in parts:
-            if getattr(p, "text", None) and not getattr(p, "thought", False):
-                text_parts.append(p.text)
-            fc = getattr(p, "function_call", None)
-            if fc:
-                func_calls.append(fc)
-
-        if not text_parts and not func_calls:
-            continue
-
-        content_items = []
-        if text_parts:
-            content_items.append({"type": "text", "text": "".join(text_parts)})
-        for fc in func_calls:
-            content_items.append({
-                "type": "tool_call",
-                "toolCallId": getattr(fc, "id", ""),
-                "toolName": getattr(fc, "name", ""),
-                "args": json.dumps(getattr(fc, "args", {})),
-            })
-
-        result.append({
-            "id": event_id,
-            "role": "assistant",
-            "content": content_items,
-        })
-
-    # --- Merge consecutive assistant events (streaming chunks) ----------
-    # Combine adjacent text parts so chunked streaming text isn't split
-    # across multiple content items.
-    if not result:
-        return result
-
-    merged: list[dict] = [result[0]]
-    for msg in result[1:]:
-        prev = merged[-1]
-        if msg["role"] == "assistant" and prev["role"] == "assistant":
-            prev_content = prev["content"]
-            for item in msg["content"]:
-                if item["type"] == "text" and prev_content and prev_content[-1]["type"] == "text":
-                    prev_content[-1]["text"] += item["text"]
-                else:
-                    prev_content.append(item)
-        else:
-            merged.append(msg)
-    return merged
+    for msg in msgs:
+        d = _message_to_thread_dict(msg)
+        if d is not None:
+            result.append(d)
+    return result
 
 
 class AdkSessionService:
@@ -244,19 +188,14 @@ class AdkSessionService:
         return session
 
     async def get_thread_messages(self, thread_id: str, user_id: str) -> Optional[dict]:
-        """Return thread data with assembled messages, or None if not found.
-
-        Processes ADK events directly instead of using ``adk_events_to_messages``
-        because the streaming workaround in ``main.py`` marks every stored event
-        as ``partial=True``, which causes the library function to filter them all
-        out (it skips partial events).
-        """
+        """Return thread data with assembled messages, or None if not found."""
         session = await self.get_session(thread_id, user_id)
         if not session:
             return None
         state_dict = _state_to_dict(session.state)
         events = getattr(session, "events", []) or []
-        messages = _adk_events_to_thread_messages(events)
+        agui_msgs = adk_events_to_messages(events)
+        messages = _assemble_thread_messages(agui_msgs)
         return {
             "id": thread_id,
             "title": state_dict.get(THREAD_TITLE_KEY),

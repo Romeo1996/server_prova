@@ -48,18 +48,22 @@ _orig_translate_text = EventTranslator._translate_text_content
 
 
 async def _patched_translate_text(self, adk_event, thread_id, run_id):
-    if getattr(adk_event, "partial", False) is None:
+    saved_partial = getattr(adk_event, "partial", None)
+    if saved_partial is None:
         adk_event.partial = True
     saved_text = self._current_stream_text
-    async for event in _orig_translate_text(self, adk_event, thread_id, run_id):
-        if (
-            isinstance(event, TextMessageContentEvent)
-            and saved_text
-            and event.delta.startswith(saved_text)
-        ):
-            self._current_stream_text = saved_text
-            continue
-        yield event
+    try:
+        async for event in _orig_translate_text(self, adk_event, thread_id, run_id):
+            if (
+                isinstance(event, TextMessageContentEvent)
+                and saved_text
+                and event.delta.startswith(saved_text)
+            ):
+                self._current_stream_text = saved_text
+                continue
+            yield event
+    finally:
+        adk_event.partial = saved_partial
 
 
 EventTranslator._translate_text_content = _patched_translate_text
