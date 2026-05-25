@@ -30,15 +30,16 @@ from src.controllers.threads import create_thread_router
 from src.services.session import AdkSessionService
 
 # ---------------------------------------------------------------------------
-# ADK 1.33 patches — partial=None breaks streaming
+# ADK patches — ensure reliable streaming regardless of LLM provider
+# (Gemini sets partial=False on final events, LiteLLM leaves partial=None)
 # ---------------------------------------------------------------------------
 _orig_is_final = ADKEvent.is_final_response
 
 
 def _patched_is_final(self):
-    if self.partial is None:
+    if self.partial:  # True → still streaming, not final
         return False
-    return _orig_is_final(self)
+    return _orig_is_final(self)  # None/False → check original logic
 
 
 ADKEvent.is_final_response = _patched_is_final
