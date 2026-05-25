@@ -176,7 +176,14 @@ class AdkSessionService:
                     return session
             except Exception:
                 continue
-        return await self._find_session_by_thread_id(thread_id, user_ids)
+        session = await self._find_session_by_thread_id(thread_id, user_ids)
+        if session:
+            session = await self._service.get_session(
+                session_id=session.id,
+                app_name=self._app_name,
+                user_id=session.user_id,
+            )
+        return session
 
     async def get_thread_messages(self, thread_id: str, user_id: str) -> Optional[dict]:
         """Return thread data with assembled messages, or None if not found."""
