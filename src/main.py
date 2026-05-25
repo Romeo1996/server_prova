@@ -123,6 +123,7 @@ adk_app = AdkApp(
     resumability_config=ResumabilityConfig(is_resumable=True),
 )
 
+logger.info("Creating ADKAgent with user_id_extractor=%s", extract_user_id)
 adk_agent = ADKAgent.from_app(
     adk_app,
     user_id_extractor=extract_user_id,

@@ -16,6 +16,11 @@ def setup_chat_endpoint(app: FastAPI, adk_agent: ADKAgent, path: str = "/chat"):
     ``extract_user_context`` hook to inject ``X-User-Id`` into session
     state so the ADK agent can resolve per-request user identity.
     """
+    logger.info(
+        "Registering chat endpoint at %s with extract_state_from_request=%s",
+        path,
+        extract_user_context,
+    )
     add_adk_fastapi_endpoint(
         app,
         adk_agent,

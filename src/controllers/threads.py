@@ -29,7 +29,7 @@ def create_thread_router(session_service: AdkSessionService) -> APIRouter:
         return user_id
 
     @router.get("/threads", response_model=ThreadListResponse)
-    async def list_threads(user_id: str = Query(...)):
+    async def list_threads(user_id: str = Query(..., alias="userId")):
         threads = await session_service.list_threads(user_id)
         return ThreadListResponse(
             threads=[
@@ -47,7 +47,7 @@ def create_thread_router(session_service: AdkSessionService) -> APIRouter:
     async def update_thread(
         thread_id: str,
         body: ThreadUpdateRequest,
-        user_id: str = Query(...),
+        user_id: str = Query(..., alias="userId"),
     ):
         updates = body.model_dump(exclude_none=True)
         if not updates:
@@ -62,7 +62,7 @@ def create_thread_router(session_service: AdkSessionService) -> APIRouter:
     @router.delete("/threads/{thread_id}")
     async def delete_thread(
         thread_id: str,
-        user_id: str = Query(...),
+        user_id: str = Query(..., alias="userId"),
     ):
         success = await session_service.delete_thread(thread_id, user_id)
         if not success:
