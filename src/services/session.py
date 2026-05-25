@@ -29,12 +29,7 @@ def _iter_user_ids(user_id: str):
 
 
 def _extract_relevant_state(state_dict: dict) -> dict | None:
-    relevant = {
-        k: v
-        for k, v in state_dict.items()
-        if k.startswith("__fork") or k in (THREAD_TITLE_KEY,)
-    }
-    return relevant if relevant else None
+    return state_dict if state_dict else None
 
 
 def _message_to_thread_dict(msg) -> dict | None:
@@ -66,7 +61,12 @@ def _message_to_thread_dict(msg) -> dict | None:
                     "toolName": tc.function.name,
                     "args": tc.function.arguments,
                 })
-        return {"id": msg.id, "role": "assistant", "content": content}
+        return {
+            "id": msg.id,
+            "role": "assistant",
+            "content": content,
+            "status": {"type": "complete", "reason": "unknown"},
+        }
 
     elif isinstance(msg, ToolMessage):
         return {
