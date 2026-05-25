@@ -24,12 +24,12 @@ from ag_ui_adk import AGUIToolset
 # che filtra automaticamente i thought parts
 model_instance, llm_config = get_model_instance()
 
-async def _after_agent_callback(ctx: Context) -> Optional[types.Content]:
+async def _after_agent_callback(callback_context: Context) -> Optional[types.Content]:
     """Genera un titolo breve per la conversazione dopo ogni risposta."""
-    if ctx.state.get("thread_title"):
+    if callback_context.state.get("thread_title"):
         return None
 
-    events = getattr(ctx.session, "events", None)
+    events = getattr(callback_context.session, "events", None)
     if not events or len(events) < 2:
         return None
 
@@ -77,7 +77,7 @@ async def _after_agent_callback(ctx: Context) -> Optional[types.Content]:
             titolo = evt.content.parts[0].text.strip(" '\"").strip()
 
     if titolo:
-        ctx.state["thread_title"] = titolo
+        callback_context.state["thread_title"] = titolo
 
     return None
 
