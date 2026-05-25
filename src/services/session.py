@@ -37,59 +37,61 @@ def _extract_relevant_state(state_dict: dict) -> dict | None:
     return relevant if relevant else None
 
 
-def _assemble_thread_messages(events: list) -> list[dict]:
-    """Convert AG-UI events to ThreadMessage-compatible dicts.
+def _message_to_thread_dict(msg) -> dict | None:
+    """Convert an AG-UI Message to a ThreadMessage-compatible dict."""
+    from ag_ui.core.types import UserMessage, AssistantMessage, ToolMessage, ReasoningMessage
 
-    Assembles ``text_start`` / ``text_content`` / ``text_end`` sequences
-    into single assistant messages; keeps ``user`` events as-is.
+    if isinstance(msg, UserMessage):
+        content = []
+        if msg.content:
+            if isinstance(msg.content, str):
+                content.append({"type": "text", "text": msg.content})
+            else:
+                for part in msg.content:
+                    if hasattr(part, "type") and part.type == "text":
+                        content.append({"type": "text", "text": part.text})
+                    else:
+                        content.append(part.model_dump() if hasattr(part, "model_dump") else {"type": "unknown"})
+        return {"id": msg.id, "role": "user", "content": content}
+
+    elif isinstance(msg, AssistantMessage):
+        content = []
+        if msg.content:
+            content.append({"type": "text", "text": msg.content})
+        if msg.tool_calls:
+            for tc in msg.tool_calls:
+                content.append({
+                    "type": "tool_call",
+                    "toolCallId": tc.id,
+                    "toolName": tc.function.name,
+                    "args": tc.function.arguments,
+                })
+        return {"id": msg.id, "role": "assistant", "content": content}
+
+    elif isinstance(msg, ToolMessage):
+        return {
+            "id": msg.id,
+            "role": "tool",
+            "content": [{"type": "tool_result", "toolCallId": msg.tool_call_id, "result": msg.content}],
+        }
+
+    elif isinstance(msg, ReasoningMessage):
+        return None
+
+    return None
+
+
+def _assemble_thread_messages(msgs: list) -> list[dict]:
+    """Convert AG-UI Message objects to ThreadMessage-compatible dicts.
+
+    ``msgs`` should be the output of ``adk_events_to_messages`` (list of
+    ``UserMessage``, ``AssistantMessage``, ``ToolMessage``, etc.).
     """
     result: list[dict] = []
-    buf: dict[str, list[str]] = {}
-
-    for event in events:
-        etype = getattr(event, "type", None)
-        mid = getattr(event, "message_id", None)
-
-        if etype == "user":
-            content = []
-            for part in getattr(event, "content", []) or []:
-                d = part.model_dump() if hasattr(part, "model_dump") else dict(part)
-                content.append(d)
-            result.append({"id": mid, "role": "user", "content": content})
-
-        elif etype == "tool_call":
-            content = [{
-                "type": "tool_call",
-                "toolCallId": getattr(event, "tool_call_id", ""),
-                "toolName": getattr(event, "tool_name", ""),
-                "args": getattr(event, "args", "{}"),
-            }]
-            result.append({"id": mid, "role": "assistant", "content": content})
-
-        elif etype == "tool_result":
-            content = [{
-                "type": "tool_result",
-                "toolCallId": getattr(event, "tool_call_id", ""),
-                "result": getattr(event, "content", []),
-            }]
-            result.append({"id": mid, "role": "tool", "content": content})
-
-        elif etype == "text_start":
-            buf[mid] = []
-
-        elif etype == "text_content":
-            if mid in buf:
-                buf[mid].append(getattr(event, "delta", ""))
-
-        elif etype == "text_end":
-            texts = buf.pop(mid, None)
-            if texts is not None:
-                result.append({
-                    "id": mid,
-                    "role": "assistant",
-                    "content": [{"type": "text", "text": "".join(texts)}],
-                })
-
+    for msg in msgs:
+        d = _message_to_thread_dict(msg)
+        if d is not None:
+            result.append(d)
     return result
 
 

@@ -44,37 +44,38 @@ async def _after_agent_callback(callback_context: Context) -> Optional[types.Con
     if len(lines) < 2:
         return None
 
-    from google.adk.agents import LlmAgent
-    from google.adk.runners import Runner
-    from google.adk.sessions import InMemorySessionService
-
-    title_agent = LlmAgent(
-        model=model_instance,
-        name="title_generator",
-        instruction=(
-            "Sei un generatore di titoli. "
-            "Genera un titolo breve (3-6 parole) per la conversazione. "
-            "Rispondi SOLO con il titolo, nient'altro."
-        ),
+    conversation_text = "\n".join(lines)
+    prompt = (
+        conversation_text
+        + "\n\nGenera un titolo breve (3-6 parole) per questa conversazione. "
+        "Rispondi SOLO con il titolo, nient'altro."
     )
 
-    runner = Runner(
-        agent=title_agent,
-        app_name="title_gen",
-        session_service=InMemorySessionService(),
-    )
+    from google.adk.models.llm_request import LlmRequest
 
-    titolo = None
-    async for evt in runner.run_async(
-        user_id="system",
-        session_id="tmp1",
-        new_message=types.Content(
-            role="user",
-            parts=[types.Part(text="\n".join(lines))]
-        ),
-    ):
-        if evt.is_final_response() and evt.content and evt.content.parts:
-            titolo = evt.content.parts[0].text.strip(" '\"").strip()
+    if isinstance(model_instance, str):
+        import google.genai as genai
+
+        client = genai.Client()
+        response = client.models.generate_content(
+            model=model_instance,
+            contents=prompt,
+        )
+        titolo = response.text.strip(" '\"").strip() if response.text else None
+    else:
+        request = LlmRequest(
+            contents=[types.Content(
+                role="user",
+                parts=[types.Part(text=prompt)],
+            )],
+        )
+        titolo = None
+        async for resp in model_instance.generate_content_async(request):
+            if resp.content and resp.content.parts:
+                for part in resp.content.parts:
+                    if part.text and not getattr(part, "thought", False):
+                        titolo = part.text.strip(" '\"").strip()
+                        break
 
     if titolo:
         callback_context.state["thread_title"] = titolo

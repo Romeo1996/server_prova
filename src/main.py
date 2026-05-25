@@ -153,7 +153,7 @@ app.include_router(create_thread_router(session_service))
 
 @app.get("/")
 async def read_root():
-    return JSONResponse({"message": "Hello World!"})
+    return JSONResponse({"message": "Hello Worldd!"})
 
 
 @app.get("/health")
