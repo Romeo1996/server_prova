@@ -3,7 +3,7 @@ import logging
 from fastapi import APIRouter, Query, HTTPException
 
 from src.dto.threads import ThreadListResponse, ThreadResponse, ThreadUpdateRequest
-from src.services.session import AdkSessionService
+from src.services.session import AdkSessionService, THREAD_TITLE_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +52,9 @@ def create_thread_router(session_service: AdkSessionService) -> APIRouter:
         updates = body.model_dump(exclude_none=True)
         if not updates:
             return {"success": True}
+        # Map DTO field "title" → session state key "thread_title"
+        if "title" in updates:
+            updates[THREAD_TITLE_KEY] = updates.pop("title")
         success = await session_service.update_thread_metadata(
             thread_id, user_id, updates
         )
