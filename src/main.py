@@ -228,6 +228,35 @@ async def _patched_stream_events(self, execution):
 
 ADKAgent._stream_events = _patched_stream_events
 
+# ---------------------------------------------------------------------------
+# Monkey-patch _start_new_execution to cancel the background task on
+# GeneratorExit (client disconnect).  task.cancel() injects CancelledError
+# into the background task; if it is mid-httpx (google.genai → LLM provider)
+# the in-flight HTTP request is aborted immediately.
+# ---------------------------------------------------------------------------
+
+_original_start_new_execution = ADKAgent._start_new_execution
+
+async def _patched_start_new_execution(self, input_data, **kwargs):
+    exec_key = (input_data.thread_id, self._get_user_id(input_data))
+    execution = None
+    try:
+        async for event in _original_start_new_execution(self, input_data, **kwargs):
+            if execution is None:
+                async with self._execution_lock:
+                    execution = self._active_executions.get(exec_key)
+            yield event
+    except (GeneratorExit, asyncio.CancelledError):
+        if execution is not None and not execution.task.done():
+            logger.warning(
+                "=== CANCEL_BACKGROUND_TASK for %s/%s ===",
+                exec_key[0], exec_key[1],
+            )
+            execution.task.cancel()
+        raise
+
+ADKAgent._start_new_execution = _patched_start_new_execution
+
 logger.info("=== Monkey-patches installed: cancel-aware SSE + disconnect handler ===")
 
 # ---------------------------------------------------------------------------
