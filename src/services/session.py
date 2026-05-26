@@ -5,16 +5,17 @@ from typing import Optional
 from google.adk.sessions import BaseSessionService
 from google.adk.events import Event, EventActions
 from ag_ui_adk.event_translator import adk_events_to_messages
+from ag_ui.core import UserMessage, AssistantMessage, ToolMessage, ReasoningMessage
 
 logger = logging.getLogger(__name__)
 
 THREAD_TITLE_KEY = "thread_title"
 THREAD_ID_STATE_KEY = "_ag_ui_thread_id"
-
 FALLBACK_USER_IDS = ["default_user"]
 
 
-def _state_to_dict(state) -> dict:
+def _state(state) -> dict:
+    """Normalize ADK state to a plain dict."""
     if state is None:
         return {}
     return state.to_dict() if hasattr(state, "to_dict") else dict(state)
@@ -28,71 +29,43 @@ def _iter_user_ids(user_id: str):
             yield fid
 
 
-def _extract_relevant_state(state_dict: dict) -> dict | None:
-    return state_dict if state_dict else None
-
-
-def _message_to_thread_dict(msg) -> dict | None:
+def _to_thread_message(msg) -> dict | None:
     """Convert an AG-UI Message to a ThreadMessage-compatible dict."""
-    from ag_ui.core.types import UserMessage, AssistantMessage, ToolMessage, ReasoningMessage
-
-    if isinstance(msg, UserMessage):
-        content = []
-        if msg.content:
+    match msg:
+        case UserMessage():
             if isinstance(msg.content, str):
-                content.append({"type": "text", "text": msg.content})
+                parts = [{"type": "text", "text": msg.content}]
             else:
-                for part in msg.content:
-                    if hasattr(part, "type") and part.type == "text":
-                        content.append({"type": "text", "text": part.text})
-                    else:
-                        content.append(part.model_dump() if hasattr(part, "model_dump") else {"type": "unknown"})
-        return {"id": msg.id, "role": "user", "content": content}
+                parts = [
+                    {"type": "text", "text": p.text}
+                    if getattr(p, "type", None) == "text"
+                    else p.model_dump() if hasattr(p, "model_dump") else {"type": "unknown"}
+                    for p in (msg.content or [])
+                ]
+            return {"id": msg.id, "role": "user", "content": parts}
 
-    elif isinstance(msg, AssistantMessage):
-        content = []
-        if msg.content:
-            content.append({"type": "text", "text": msg.content})
-        if msg.tool_calls:
-            for tc in msg.tool_calls:
-                content.append({
-                    "type": "tool_call",
-                    "toolCallId": tc.id,
-                    "toolName": tc.function.name,
-                    "args": tc.function.arguments,
-                })
-        return {
-            "id": msg.id,
-            "role": "assistant",
-            "content": content,
-            "status": {"type": "complete", "reason": "unknown"},
-        }
+        case AssistantMessage():
+            text = [{"type": "text", "text": msg.content}] if msg.content else []
+            tools = [
+                {"type": "tool_call", "toolCallId": tc.id, "toolName": tc.function.name, "args": tc.function.arguments}
+                for tc in (msg.tool_calls or [])
+            ]
+            return {
+                "id": msg.id,
+                "role": "assistant",
+                "content": text + tools,
+                "status": {"type": "complete", "reason": "unknown"},
+            }
 
-    elif isinstance(msg, ToolMessage):
-        return {
-            "id": msg.id,
-            "role": "tool",
-            "content": [{"type": "tool_result", "toolCallId": msg.tool_call_id, "result": msg.content}],
-        }
+        case ToolMessage():
+            return {
+                "id": msg.id,
+                "role": "tool",
+                "content": [{"type": "tool_result", "toolCallId": msg.tool_call_id, "result": msg.content}],
+            }
 
-    elif isinstance(msg, ReasoningMessage):
-        return None
-
-    return None
-
-
-def _assemble_thread_messages(msgs: list) -> list[dict]:
-    """Convert AG-UI Message objects to ThreadMessage-compatible dicts.
-
-    ``msgs`` should be the output of ``adk_events_to_messages`` (list of
-    ``UserMessage``, ``AssistantMessage``, ``ToolMessage``, etc.).
-    """
-    result: list[dict] = []
-    for msg in msgs:
-        d = _message_to_thread_dict(msg)
-        if d is not None:
-            result.append(d)
-    return result
+        case _:
+            return None
 
 
 class AdkSessionService:
@@ -125,7 +98,7 @@ class AdkSessionService:
                 continue
 
             for session in response.sessions:
-                state_dict = _state_to_dict(session.state)
+                state_dict = _state(session.state)
                 thread_id = state_dict.get(THREAD_ID_STATE_KEY, session.id)
                 if thread_id in seen_ids:
                     continue
@@ -135,7 +108,7 @@ class AdkSessionService:
                         "id": thread_id,
                         "title": state_dict.get(THREAD_TITLE_KEY),
                         "updated_at": getattr(session, "last_update_time", None),
-                        "state": _extract_relevant_state(state_dict),
+                        "state": state_dict or None,
                     }
                 )
 
@@ -154,7 +127,7 @@ class AdkSessionService:
             except Exception:
                 continue
             for session in response.sessions:
-                state_dict = _state_to_dict(session.state)
+                state_dict = _state(session.state)
                 if state_dict.get(THREAD_ID_STATE_KEY) == thread_id:
                     return session
         return None
@@ -192,10 +165,9 @@ class AdkSessionService:
         session = await self.get_session(thread_id, user_id)
         if not session:
             return None
-        state_dict = _state_to_dict(session.state)
-        events = getattr(session, "events", []) or []
-        agui_msgs = adk_events_to_messages(events)
-        messages = _assemble_thread_messages(agui_msgs)
+        state_dict = _state(session.state)
+        agui_msgs = adk_events_to_messages(getattr(session, "events", []) or [])
+        messages = [m for msg in agui_msgs if (m := _to_thread_message(msg)) is not None]
         return {
             "id": thread_id,
             "title": state_dict.get(THREAD_TITLE_KEY),

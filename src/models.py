@@ -62,7 +62,9 @@ class _ThinkStripper:
 
 class StripThinkingLiteLlm(BaseLlm):
     """
-    Wrapper di LiteLlm che rimuove il thinking/reasoning dalla risposta.
+    Wrapper di LiteLlm che rimuove il thinking/reasoning dalla risposta,
+    preservando tutti i campi dell'evento originale (partial, turn_complete,
+    finish_reason, usage_metadata, ecc.).
 
     Due modalità in base a come il modello restituisce il thinking:
     - Part(thought=True) → scartato direttamente  (Nemotron, DeepSeek via LiteLLM)
@@ -100,13 +102,15 @@ class StripThinkingLiteLlm(BaseLlm):
                 if cleaned:
                     new_parts.append(types.Part(text=cleaned))
 
+            original_role = getattr(event.content, 'role', None) or "model"
+
             if new_parts:
-                original_role = getattr(event.content, 'role', None) or "model"
                 yield LlmResponse(
+                    **event.model_dump(exclude={'content'}),
                     content=types.Content(role=original_role, parts=new_parts),
-                    grounding_metadata=getattr(event, 'grounding_metadata', None),
                 )
             else:
                 yield LlmResponse(
+                    **event.model_dump(exclude={'content'}),
                     content=types.Content(role="model", parts=[types.Part(text="")]),
                 )

@@ -18,56 +18,13 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from google.adk.apps import App as AdkApp, ResumabilityConfig
-from google.adk.events import Event as ADKEvent
 from ag_ui_adk import ADKAgent
-from ag_ui_adk.event_translator import EventTranslator
-from ag_ui.core import TextMessageContentEvent
 
 from src.agents.example_agent.agent import root_agent
 from src.middleware.user_context import extract_user_id
 from src.controllers.chat import setup_chat_endpoint
 from src.controllers.threads import create_thread_router
 from src.services.session import AdkSessionService
-
-# ---------------------------------------------------------------------------
-# ADK patches — ensure reliable streaming regardless of LLM provider
-# (Gemini sets partial=False on final events, LiteLLM leaves partial=None)
-# ---------------------------------------------------------------------------
-_orig_is_final = ADKEvent.is_final_response
-
-
-def _patched_is_final(self):
-    if self.partial:  # True → still streaming, not final
-        return False
-    return _orig_is_final(self)  # None/False → check original logic
-
-
-ADKEvent.is_final_response = _patched_is_final
-
-
-_orig_translate_text = EventTranslator._translate_text_content
-
-
-async def _patched_translate_text(self, adk_event, thread_id, run_id):
-    saved_partial = getattr(adk_event, "partial", None)
-    if saved_partial is None:
-        adk_event.partial = True
-    saved_text = self._current_stream_text
-    try:
-        async for event in _orig_translate_text(self, adk_event, thread_id, run_id):
-            if (
-                isinstance(event, TextMessageContentEvent)
-                and saved_text
-                and event.delta.startswith(saved_text)
-            ):
-                self._current_stream_text = saved_text
-                continue
-            yield event
-    finally:
-        adk_event.partial = saved_partial
-
-
-EventTranslator._translate_text_content = _patched_translate_text
 
 # ---------------------------------------------------------------------------
 # Logging
