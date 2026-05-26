@@ -10,6 +10,7 @@ MVC structure:
 """
 
 import os
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -28,20 +29,55 @@ from src.services.session import AdkSessionService
 
 
 class CancelAwareADKAgent(ADKAgent):
-    """Propaga GeneratorExit su disconnessione client per fermare il runner ADK."""
+    logger = logging.getLogger(f"{__name__}.CancelAwareADKAgent")
+
     async def run(self, input_data):
+        self.logger.warning(
+            "=== AGENT RUN ENTERED === thread_id=%s user_id=%s session_id=%s",
+            getattr(input_data, 'thread_id', None) or getattr(input_data, 'threadId', None),
+            getattr(input_data, 'user_id', None) or getattr(input_data, 'userId', None),
+            getattr(input_data, 'session_id', None) or getattr(input_data, 'sessionId', None),
+        )
         try:
             async for event in super().run(input_data):
                 yield event
-        except GeneratorExit:
+        except (GeneratorExit, asyncio.CancelledError):
+            import sys
+            exc_type, exc_value, _ = sys.exc_info()
+            self.logger.warning(
+                "=== CANCELLATION DETECTED === type=%s user_id=%s session_id=%s",
+                exc_type.__name__ if exc_type else '?',
+                getattr(input_data, 'user_id', None) or getattr(input_data, 'userId', None),
+                getattr(input_data, 'session_id', None) or getattr(input_data, 'sessionId', None),
+            )
             user_id = getattr(input_data, 'user_id', None) or getattr(input_data, 'userId', None)
             session_id = getattr(input_data, 'session_id', None) or getattr(input_data, 'sessionId', None)
             if session_id and user_id:
                 exec_key = (session_id, user_id)
                 async with self._execution_lock:
                     execution = self._active_executions.get(exec_key)
-                    if execution and not execution.task.done():
-                        await execution.cancel()
+                    if execution:
+                        if execution.task.done():
+                            self.logger.warning(
+                                "=== ADK execution already done for %s/%s ===",
+                                session_id, user_id,
+                            )
+                        else:
+                            await execution.cancel()
+                            self.logger.warning(
+                                "=== ADK execution CANCELLED for %s/%s ===",
+                                session_id, user_id,
+                            )
+                    else:
+                        self.logger.warning(
+                            "=== No active ADK execution found for %s/%s ===",
+                            session_id, user_id,
+                        )
+            else:
+                self.logger.warning(
+                    "=== Missing session_id or user_id: session_id=%s user_id=%s ===",
+                    session_id, user_id,
+                )
             raise
 
 # ---------------------------------------------------------------------------
