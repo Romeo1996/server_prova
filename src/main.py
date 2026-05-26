@@ -11,10 +11,12 @@ MVC structure:
 
 import os
 import asyncio
+import contextvars
 import logging
 from contextlib import asynccontextmanager
+from typing import Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -109,6 +111,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ---------------------------------------------------------------------------
+# Context var: holds the current request for disconnect detection in
+# _patched_stream_events.  Set by the middleware below, read after every
+# `yield event` inside the SSE stream loop.
+# ---------------------------------------------------------------------------
+_current_request_var: contextvars.ContextVar[Optional[Request]] = \
+    contextvars.ContextVar('_current_request', default=None)
+
+
+@app.middleware("http")
+async def _store_current_request(request: Request, call_next):
+    token = _current_request_var.set(request)
+    try:
+        return await call_next(request)
+    finally:
+        _current_request_var.reset(token)
 
 # ---------------------------------------------------------------------------
 # ADK Agent (Model)
@@ -216,9 +235,23 @@ EventSourceResponse.__init__ = _patched_esr_init
 _original_stream_events = ADKAgent._stream_events
 
 async def _patched_stream_events(self, execution):
-    async for event in _original_stream_events(self, execution):
-        yield event
-    # If we reach here, _stream_events broke out of its loop
+    try:
+        async for event in _original_stream_events(self, execution):
+            yield event
+            request = _current_request_var.get()
+            if request is not None and await request.is_disconnected():
+                logger.warning(
+                    "=== CLIENT DISCONNECTED after event for %s ===",
+                    execution.thread_id,
+                )
+                raise asyncio.CancelledError()
+    except asyncio.CancelledError:
+        logger.warning(
+            "=== STREAM_EVENTS INTERRUPTED for %s ===",
+            execution.thread_id,
+        )
+        raise
+    # If we reach here, _stream_events broke out of its loop normally
     logger.warning(
         "=== STREAM_EVENTS EXITED for %s (is_complete=%s, task_done=%s) ===",
         execution.thread_id,
