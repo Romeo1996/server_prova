@@ -32,6 +32,8 @@ class CancelAwareADKAgent(ADKAgent):
     logger = logging.getLogger(f"{__name__}.CancelAwareADKAgent")
 
     async def run(self, input_data):
+        import sys as _sys
+        print("=== CANCEL_AWARE_RUN ENTERED ===", flush=True, file=_sys.stderr)
         self.logger.warning(
             "=== AGENT RUN ENTERED === thread_id=%s user_id=%s session_id=%s",
             getattr(input_data, 'thread_id', None) or getattr(input_data, 'threadId', None),
@@ -42,8 +44,8 @@ class CancelAwareADKAgent(ADKAgent):
             async for event in super().run(input_data):
                 yield event
         except (GeneratorExit, asyncio.CancelledError):
-            import sys
-            exc_type, exc_value, _ = sys.exc_info()
+            exc_type, exc_value, _ = _sys.exc_info()
+            print(f"=== CANCEL_AWARE_CANCELLATION DETECTED type={exc_type.__name__ if exc_type else '?'} ===", flush=True, file=_sys.stderr)
             self.logger.warning(
                 "=== CANCELLATION DETECTED === type=%s user_id=%s session_id=%s",
                 exc_type.__name__ if exc_type else '?',
