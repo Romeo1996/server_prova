@@ -45,15 +45,24 @@ class CancelAwareADKAgent(ADKAgent):
         try:
             async for event in super().run(input_data):
                 yield event
-        except (GeneratorExit, asyncio.CancelledError):
-            exc_type, exc_value, _ = _sys.exc_info()
-            print(f"=== CANCEL_AWARE_CANCELLATION DETECTED type={exc_type.__name__ if exc_type else '?'} ===", flush=True, file=_sys.stderr)
             self.logger.warning(
-                "=== CANCELLATION DETECTED === type=%s user_id=%s session_id=%s",
+                "=== AGENT RUN COMPLETED NORMALLY === thread_id=%s",
+                getattr(input_data, 'thread_id', None) or getattr(input_data, 'threadId', None),
+            )
+        except BaseException:
+            exc_type, exc_value, exc_tb = _sys.exc_info()
+            print(f"=== CANCEL_AWARE_EXCEPTION type={exc_type.__name__ if exc_type else '?'} msg={exc_value} ===", flush=True, file=_sys.stderr)
+            self.logger.warning(
+                "=== EXCEPTION CAUGHT === type=%s msg=%s user_id=%s session_id=%s",
                 exc_type.__name__ if exc_type else '?',
+                str(exc_value) if exc_value else '?',
                 getattr(input_data, 'user_id', None) or getattr(input_data, 'userId', None),
                 getattr(input_data, 'session_id', None) or getattr(input_data, 'sessionId', None),
             )
+            if isinstance(exc_value, BaseException):
+                import traceback
+                tb_text = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+                print(f"=== EXCEPTION TRACEBACK ===\n{tb_text}===", flush=True, file=_sys.stderr)
             user_id = getattr(input_data, 'user_id', None) or getattr(input_data, 'userId', None)
             session_id = getattr(input_data, 'session_id', None) or getattr(input_data, 'sessionId', None)
             if session_id and user_id:
