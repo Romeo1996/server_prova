@@ -27,8 +27,12 @@ from src.controllers.chat import setup_chat_endpoint
 from src.controllers.threads import create_thread_router
 from src.services.session import AdkSessionService
 
+import ag_ui_adk.endpoint as _ep
+from sse_starlette.sse import EventSourceResponse
+
 
 print(f"=== MAIN.PY LOADED __name__={__name__} ===", flush=True)
+
 
 class CancelAwareADKAgent(ADKAgent):
     logger = logging.getLogger(f"{__name__}.CancelAwareADKAgent")
@@ -49,48 +53,11 @@ class CancelAwareADKAgent(ADKAgent):
                 "=== AGENT RUN COMPLETED NORMALLY === thread_id=%s",
                 getattr(input_data, 'thread_id', None) or getattr(input_data, 'threadId', None),
             )
-        except BaseException:
-            exc_type, exc_value, exc_tb = _sys.exc_info()
-            print(f"=== CANCEL_AWARE_EXCEPTION type={exc_type.__name__ if exc_type else '?'} msg={exc_value} ===", flush=True, file=_sys.stderr)
+        except (GeneratorExit, asyncio.CancelledError):
             self.logger.warning(
-                "=== EXCEPTION CAUGHT === type=%s msg=%s user_id=%s session_id=%s",
-                exc_type.__name__ if exc_type else '?',
-                str(exc_value) if exc_value else '?',
-                getattr(input_data, 'user_id', None) or getattr(input_data, 'userId', None),
-                getattr(input_data, 'session_id', None) or getattr(input_data, 'sessionId', None),
+                "=== AGENT RUN INTERRUPTED === thread_id=%s",
+                getattr(input_data, 'thread_id', None) or getattr(input_data, 'threadId', None),
             )
-            if isinstance(exc_value, BaseException):
-                import traceback
-                tb_text = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
-                print(f"=== EXCEPTION TRACEBACK ===\n{tb_text}===", flush=True, file=_sys.stderr)
-            user_id = getattr(input_data, 'user_id', None) or getattr(input_data, 'userId', None)
-            session_id = getattr(input_data, 'session_id', None) or getattr(input_data, 'sessionId', None)
-            if session_id and user_id:
-                exec_key = (session_id, user_id)
-                async with self._execution_lock:
-                    execution = self._active_executions.get(exec_key)
-                    if execution:
-                        if execution.task.done():
-                            self.logger.warning(
-                                "=== ADK execution already done for %s/%s ===",
-                                session_id, user_id,
-                            )
-                        else:
-                            await execution.cancel()
-                            self.logger.warning(
-                                "=== ADK execution CANCELLED for %s/%s ===",
-                                session_id, user_id,
-                            )
-                    else:
-                        self.logger.warning(
-                            "=== No active ADK execution found for %s/%s ===",
-                            session_id, user_id,
-                        )
-            else:
-                self.logger.warning(
-                    "=== Missing session_id or user_id: session_id=%s user_id=%s ===",
-                    session_id, user_id,
-                )
             raise
 
 # ---------------------------------------------------------------------------
@@ -159,6 +126,54 @@ adk_agent = CancelAwareADKAgent.from_app(
     plugin_close_timeout=10.0,
     use_thread_id_as_session_id=True,
 )
+
+# ---------------------------------------------------------------------------
+# Monkey-patches for disconnect cancellation
+# ---------------------------------------------------------------------------
+
+_original_sse_stream = _ep._sse_stream
+
+def _cancel_aware_sse(agent, input_data):
+    cancel_event = asyncio.Event()
+
+    async def _wrapped():
+        async for event in _original_sse_stream(agent, input_data):
+            if cancel_event.is_set():
+                break
+            yield event
+
+    gen = _wrapped()
+    gen._cancel_event = cancel_event
+    gen._agent = agent
+    gen._input_data = input_data
+    return gen
+
+_ep._sse_stream = _cancel_aware_sse
+
+_orig_esr_init = EventSourceResponse.__init__
+
+def _patched_esr_init(self, content, **kwargs):
+    cancel_event = getattr(content, '_cancel_event', None)
+    if cancel_event is not None:
+        agent = content._agent
+        input_data = content._input_data
+
+        async def on_disconnect(message):
+            cancel_event.set()
+            user_id = agent._get_user_id(input_data)
+            exec_key = (input_data.thread_id, user_id)
+            async with agent._execution_lock:
+                execution = agent._active_executions.get(exec_key)
+                if execution and not execution.task.done():
+                    await execution.cancel()
+
+        kwargs['client_close_handler_callable'] = on_disconnect
+
+    _orig_esr_init(self, content, **kwargs)
+
+EventSourceResponse.__init__ = _patched_esr_init
+
+logger.info("=== Monkey-patches installed: cancel-aware SSE + disconnect handler ===")
 
 # ---------------------------------------------------------------------------
 # Controllers
