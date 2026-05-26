@@ -133,8 +133,11 @@ adk_agent = CancelAwareADKAgent.from_app(
 
 _original_sse_stream = _ep._sse_stream
 
+_sse_info_queue: list = []
+
 def _cancel_aware_sse(agent, input_data):
     cancel_event = asyncio.Event()
+    _sse_info_queue.append((cancel_event, agent, input_data))
 
     async def _wrapped():
         async for event in _original_sse_stream(agent, input_data):
@@ -142,21 +145,15 @@ def _cancel_aware_sse(agent, input_data):
                 break
             yield event
 
-    gen = _wrapped()
-    gen._cancel_event = cancel_event
-    gen._agent = agent
-    gen._input_data = input_data
-    return gen
+    return _wrapped()
 
 _ep._sse_stream = _cancel_aware_sse
 
 _orig_esr_init = EventSourceResponse.__init__
 
 def _patched_esr_init(self, content, **kwargs):
-    cancel_event = getattr(content, '_cancel_event', None)
-    if cancel_event is not None:
-        agent = content._agent
-        input_data = content._input_data
+    if _sse_info_queue:
+        cancel_event, agent, input_data = _sse_info_queue.pop(0)
 
         async def on_disconnect(message):
             cancel_event.set()
