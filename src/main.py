@@ -137,11 +137,17 @@ _sse_info_queue: list = []
 
 def _cancel_aware_sse(agent, input_data):
     cancel_event = asyncio.Event()
+    user_id = agent._get_user_id(input_data)
+    exec_key = (input_data.thread_id, user_id)
     _sse_info_queue.append((cancel_event, agent, input_data))
 
     async def _wrapped():
         async for event in _original_sse_stream(agent, input_data):
             if cancel_event.is_set():
+                logger.warning(
+                    "=== CANCEL_AWARE_SSE: cancel_event set, breaking stream for %s/%s ===",
+                    exec_key[0], exec_key[1],
+                )
                 break
             yield event
 
@@ -154,45 +160,73 @@ _orig_esr_init = EventSourceResponse.__init__
 def _patched_esr_init(self, content, **kwargs):
     if _sse_info_queue:
         cancel_event, agent, input_data = _sse_info_queue.pop(0)
+        user_id = agent._get_user_id(input_data)
+        exec_key = (input_data.thread_id, user_id)
 
         async def on_disconnect(message):
             logger.warning(
                 "=== DISCONNECT HANDLER CALLED === thread_id=%s msg_type=%s",
-                getattr(input_data, 'thread_id', None),
+                exec_key[0],
                 message.get('type', '?'),
             )
             cancel_event.set()
-            user_id = agent._get_user_id(input_data)
-            exec_key = (input_data.thread_id, user_id)
-            logger.warning(
-                "=== DISCONNECT cancelling exec_key=%s/%s ===",
-                exec_key[0], exec_key[1],
-            )
+
             async with agent._execution_lock:
                 execution = agent._active_executions.get(exec_key)
-                if execution:
-                    if execution.task.done():
-                        logger.warning(
-                            "=== DISCONNECT execution already done for %s/%s ===",
-                            exec_key[0], exec_key[1],
-                        )
-                    else:
-                        await execution.cancel()
-                        logger.warning(
-                            "=== DISCONNECT cancelled execution for %s/%s ===",
-                            exec_key[0], exec_key[1],
-                        )
-                else:
+
+                if execution is None:
                     logger.warning(
-                        "=== DISCONNECT no execution found for %s/%s ===",
+                        "=== DISCONNECT no execution found for %s/%s (cancel_event still set) ===",
                         exec_key[0], exec_key[1],
                     )
+                    return
+
+                if execution.task.done():
+                    logger.warning(
+                        "=== DISCONNECT execution already done for %s/%s ===",
+                        exec_key[0], exec_key[1],
+                    )
+                    return
+
+                # Put None on the event queue to unblock _stream_events immediately
+                await execution.event_queue.put(None)
+                logger.warning(
+                    "=== DISCONNECT put None on event queue for %s/%s (qsize=%d) ===",
+                    exec_key[0], exec_key[1],
+                    execution.event_queue.qsize(),
+                )
+
+                # Fire-and-forget task cancel (don't await — on_disconnect must return fast)
+                execution.task.cancel()
+                logger.warning(
+                    "=== DISCONNECT task.cancel() fired for %s/%s ===",
+                    exec_key[0], exec_key[1],
+                )
 
         kwargs['client_close_handler_callable'] = on_disconnect
 
     _orig_esr_init(self, content, **kwargs)
 
 EventSourceResponse.__init__ = _patched_esr_init
+
+# ---------------------------------------------------------------------------
+# Monkey-patch _stream_events to log at WARNING when None is received
+# ---------------------------------------------------------------------------
+
+_original_stream_events = ADKAgent._stream_events
+
+async def _patched_stream_events(self, execution):
+    async for event in _original_stream_events(self, execution):
+        yield event
+    # If we reach here, _stream_events broke out of its loop
+    logger.warning(
+        "=== STREAM_EVENTS EXITED for %s (is_complete=%s, task_done=%s) ===",
+        execution.thread_id,
+        execution.is_complete,
+        execution.task.done(),
+    )
+
+ADKAgent._stream_events = _patched_stream_events
 
 logger.info("=== Monkey-patches installed: cancel-aware SSE + disconnect handler ===")
 
