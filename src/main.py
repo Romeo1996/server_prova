@@ -26,6 +26,24 @@ from src.controllers.chat import setup_chat_endpoint
 from src.controllers.threads import create_thread_router
 from src.services.session import AdkSessionService
 
+
+class CancelAwareADKAgent(ADKAgent):
+    """Propaga GeneratorExit su disconnessione client per fermare il runner ADK."""
+    async def run(self, input_data):
+        try:
+            async for event in super().run(input_data):
+                yield event
+        except GeneratorExit:
+            user_id = getattr(input_data, 'user_id', None) or getattr(input_data, 'userId', None)
+            session_id = getattr(input_data, 'session_id', None) or getattr(input_data, 'sessionId', None)
+            if session_id and user_id:
+                exec_key = (session_id, user_id)
+                async with self._execution_lock:
+                    execution = self._active_executions.get(exec_key)
+                    if execution and not execution.task.done():
+                        await execution.cancel()
+            raise
+
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
@@ -86,7 +104,7 @@ adk_app = AdkApp(
 )
 
 logger.info("Creating ADKAgent with user_id_extractor=%s", extract_user_id)
-adk_agent = ADKAgent.from_app(
+adk_agent = CancelAwareADKAgent.from_app(
     adk_app,
     user_id_extractor=extract_user_id,
     plugin_close_timeout=10.0,
