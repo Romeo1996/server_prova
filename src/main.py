@@ -28,6 +28,8 @@ from src.controllers.threads import create_thread_router
 from src.services.session import AdkSessionService
 
 
+print(f"=== MAIN.PY LOADED __name__={__name__} ===", flush=True)
+
 class CancelAwareADKAgent(ADKAgent):
     logger = logging.getLogger(f"{__name__}.CancelAwareADKAgent")
 
