@@ -156,13 +156,37 @@ def _patched_esr_init(self, content, **kwargs):
         cancel_event, agent, input_data = _sse_info_queue.pop(0)
 
         async def on_disconnect(message):
+            logger.warning(
+                "=== DISCONNECT HANDLER CALLED === thread_id=%s msg_type=%s",
+                getattr(input_data, 'thread_id', None),
+                message.get('type', '?'),
+            )
             cancel_event.set()
             user_id = agent._get_user_id(input_data)
             exec_key = (input_data.thread_id, user_id)
+            logger.warning(
+                "=== DISCONNECT cancelling exec_key=%s/%s ===",
+                exec_key[0], exec_key[1],
+            )
             async with agent._execution_lock:
                 execution = agent._active_executions.get(exec_key)
-                if execution and not execution.task.done():
-                    await execution.cancel()
+                if execution:
+                    if execution.task.done():
+                        logger.warning(
+                            "=== DISCONNECT execution already done for %s/%s ===",
+                            exec_key[0], exec_key[1],
+                        )
+                    else:
+                        await execution.cancel()
+                        logger.warning(
+                            "=== DISCONNECT cancelled execution for %s/%s ===",
+                            exec_key[0], exec_key[1],
+                        )
+                else:
+                    logger.warning(
+                        "=== DISCONNECT no execution found for %s/%s ===",
+                        exec_key[0], exec_key[1],
+                    )
 
         kwargs['client_close_handler_callable'] = on_disconnect
 
