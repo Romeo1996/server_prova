@@ -180,6 +180,11 @@ def _cancel_aware_sse(agent, input_data):
     thread_id = input_data.thread_id
     user_id = agent._get_user_id(input_data)
     request = _current_request_var.get()
+    logger.warning(
+        "=== CANCEL_AWARE_SSE: request=%s (None=%s) ===",
+        id(request) if request is not None else None,
+        request is None,
+    )
 
     state = ThreadCancelState(cancel_event=cancel_event, request=request)
     _cancel_states[thread_id] = state
@@ -191,6 +196,11 @@ def _cancel_aware_sse(agent, input_data):
     })
 
     async def _monitor_disconnect():
+        logger.warning(
+            "=== MONITOR STARTED for %s/%s (request=%s) ===",
+            thread_id, user_id,
+            id(request) if request is not None else None,
+        )
         try:
             while True:
                 await asyncio.sleep(0.5)
@@ -232,6 +242,11 @@ _orig_esr_init = EventSourceResponse.__init__
 
 def _patched_esr_init(self, content, **kwargs):
     info = _disconnect_info_var.get()
+    logger.warning(
+        "=== PATCHED_ESR_INIT: info is None=%s, kwargs=%s ===",
+        info is None,
+        list(kwargs.keys()),
+    )
     if info is not None:
         thread_id = info['thread_id']
         user_id = info['user_id']
