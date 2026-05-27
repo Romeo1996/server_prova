@@ -16,7 +16,7 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -113,21 +113,17 @@ app.add_middleware(
 )
 
 # ---------------------------------------------------------------------------
-# Context var: holds the current request for disconnect detection in
-# _patched_stream_events.  Set by the middleware below, read after every
-# `yield event` inside the SSE stream loop.
+# Cancel-event registry: maps thread_id → asyncio.Event for disconnect
+# cancellation.  Populated by _cancel_aware_sse, consumed by
+# _patched_stream_events and the on_disconnect handler below.
 # ---------------------------------------------------------------------------
-_current_request_var: contextvars.ContextVar[Optional[Request]] = \
-    contextvars.ContextVar('_current_request', default=None)
+_cancel_events: dict[str, asyncio.Event] = {}
 
-
-@app.middleware("http")
-async def _store_current_request(request: Request, call_next):
-    token = _current_request_var.set(request)
-    try:
-        return await call_next(request)
-    finally:
-        _current_request_var.reset(token)
+# Contextvar for passing (thread_id, agent, user_id) from _cancel_aware_sse
+# to _patched_esr_init.  Both run synchronously in the same task (no await
+# between them) so this IS safe in Python 3.11.
+_disconnect_info_var: contextvars.ContextVar[Optional[dict]] = \
+    contextvars.ContextVar('_disconnect_info', default=None)
 
 # ---------------------------------------------------------------------------
 # ADK Agent (Model)
@@ -152,23 +148,30 @@ adk_agent = CancelAwareADKAgent.from_app(
 
 _original_sse_stream = _ep._sse_stream
 
-_sse_info_queue: list = []
-
 def _cancel_aware_sse(agent, input_data):
     cancel_event = asyncio.Event()
+    thread_id = input_data.thread_id
     user_id = agent._get_user_id(input_data)
-    exec_key = (input_data.thread_id, user_id)
-    _sse_info_queue.append((cancel_event, agent, input_data))
+    _cancel_events[thread_id] = cancel_event
+    _disconnect_info_var.set({
+        'thread_id': thread_id,
+        'user_id': user_id,
+        'agent': agent,
+        'cancel_event': cancel_event,
+    })
 
     async def _wrapped():
-        async for event in _original_sse_stream(agent, input_data):
-            if cancel_event.is_set():
-                logger.warning(
-                    "=== CANCEL_AWARE_SSE: cancel_event set, breaking stream for %s/%s ===",
-                    exec_key[0], exec_key[1],
-                )
-                break
-            yield event
+        try:
+            async for event in _original_sse_stream(agent, input_data):
+                if cancel_event.is_set():
+                    logger.warning(
+                        "=== CANCEL_AWARE_SSE: cancel_event set, breaking stream for %s/%s ===",
+                        thread_id, user_id,
+                    )
+                    break
+                yield event
+        finally:
+            _cancel_events.pop(thread_id, None)
 
     return _wrapped()
 
@@ -177,15 +180,18 @@ _ep._sse_stream = _cancel_aware_sse
 _orig_esr_init = EventSourceResponse.__init__
 
 def _patched_esr_init(self, content, **kwargs):
-    if _sse_info_queue:
-        cancel_event, agent, input_data = _sse_info_queue.pop(0)
-        user_id = agent._get_user_id(input_data)
-        exec_key = (input_data.thread_id, user_id)
+    info = _disconnect_info_var.get()
+    if info is not None:
+        thread_id = info['thread_id']
+        user_id = info['user_id']
+        agent = info['agent']
+        cancel_event = info['cancel_event']
+        exec_key = (thread_id, user_id)
 
         async def on_disconnect(message):
             logger.warning(
                 "=== DISCONNECT HANDLER CALLED === thread_id=%s msg_type=%s",
-                exec_key[0],
+                thread_id,
                 message.get('type', '?'),
             )
             cancel_event.set()
@@ -195,7 +201,7 @@ def _patched_esr_init(self, content, **kwargs):
 
                 if execution is None:
                     logger.warning(
-                        "=== DISCONNECT no execution found for %s/%s (cancel_event still set) ===",
+                        "=== DISCONNECT no execution found for %s/%s ===",
                         exec_key[0], exec_key[1],
                     )
                     return
@@ -207,7 +213,6 @@ def _patched_esr_init(self, content, **kwargs):
                     )
                     return
 
-                # Put None on the event queue to unblock _stream_events immediately
                 await execution.event_queue.put(None)
                 logger.warning(
                     "=== DISCONNECT put None on event queue for %s/%s (qsize=%d) ===",
@@ -215,13 +220,13 @@ def _patched_esr_init(self, content, **kwargs):
                     execution.event_queue.qsize(),
                 )
 
-                # Fire-and-forget task cancel (don't await — on_disconnect must return fast)
                 execution.task.cancel()
                 logger.warning(
                     "=== DISCONNECT task.cancel() fired for %s/%s ===",
                     exec_key[0], exec_key[1],
                 )
 
+        kwargs.pop('client_close_handler_callable', None)
         kwargs['client_close_handler_callable'] = on_disconnect
 
     _orig_esr_init(self, content, **kwargs)
@@ -238,8 +243,8 @@ async def _patched_stream_events(self, execution):
     try:
         async for event in _original_stream_events(self, execution):
             yield event
-            request = _current_request_var.get()
-            if request is not None and await request.is_disconnected():
+            cancel_event = _cancel_events.get(execution.thread_id)
+            if cancel_event is not None and cancel_event.is_set():
                 logger.warning(
                     "=== CLIENT DISCONNECTED after event for %s ===",
                     execution.thread_id,
