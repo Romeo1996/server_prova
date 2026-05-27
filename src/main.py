@@ -14,9 +14,10 @@ import asyncio
 import contextvars
 import logging
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from typing import Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -113,17 +114,43 @@ app.add_middleware(
 )
 
 # ---------------------------------------------------------------------------
-# Cancel-event registry: maps thread_id → asyncio.Event for disconnect
-# cancellation.  Populated by _cancel_aware_sse, consumed by
-# _patched_stream_events and the on_disconnect handler below.
+# Thread-level state for disconnect-driven cancellation.
 # ---------------------------------------------------------------------------
-_cancel_events: dict[str, asyncio.Event] = {}
+@dataclass
+class ThreadCancelState:
+    cancel_event: asyncio.Event
+    request: Optional[Request] = None
+    monitor_task: Optional[asyncio.Task] = None
 
-# Contextvar for passing (thread_id, agent, user_id) from _cancel_aware_sse
-# to _patched_esr_init.  Both run synchronously in the same task (no await
-# between them) so this IS safe in Python 3.11.
+_cancel_states: dict[str, ThreadCancelState] = {}
+
+# Contextvar for passing (thread_id, agent, user_id, cancel_event) from
+# _cancel_aware_sse to _patched_esr_init.  Both run synchronously in the
+# same task (no await between them) — safe in Python 3.11.
 _disconnect_info_var: contextvars.ContextVar[Optional[dict]] = \
     contextvars.ContextVar('_disconnect_info', default=None)
+
+# Contextvar set by _store_current_request middleware so that
+# _cancel_aware_sse and _patched_stream_events can read the Request and
+# call request.is_disconnected() for early disconnect detection.
+_current_request_var: contextvars.ContextVar[Optional[Request]] = \
+    contextvars.ContextVar('_current_request', default=None)
+
+# ---------------------------------------------------------------------------
+# Store current Request in a contextvar so the cancel machinery can read
+# the ASGI receive channel directly (request.is_disconnected()).
+# FastAPI awaits the response inside call_next() — the contextvar survives
+# for the entire SSE stream duration.
+# ---------------------------------------------------------------------------
+
+@app.middleware("http")
+async def _store_current_request(request: Request, call_next):
+    _current_request_var.set(request)
+    try:
+        response = await call_next(request)
+        return response
+    finally:
+        _current_request_var.set(None)
 
 # ---------------------------------------------------------------------------
 # ADK Agent (Model)
@@ -152,7 +179,10 @@ def _cancel_aware_sse(agent, input_data):
     cancel_event = asyncio.Event()
     thread_id = input_data.thread_id
     user_id = agent._get_user_id(input_data)
-    _cancel_events[thread_id] = cancel_event
+    request = _current_request_var.get()
+
+    state = ThreadCancelState(cancel_event=cancel_event, request=request)
+    _cancel_states[thread_id] = state
     _disconnect_info_var.set({
         'thread_id': thread_id,
         'user_id': user_id,
@@ -160,8 +190,27 @@ def _cancel_aware_sse(agent, input_data):
         'cancel_event': cancel_event,
     })
 
-    async def _wrapped():
+    async def _monitor_disconnect():
         try:
+            while True:
+                await asyncio.sleep(0.5)
+                if request is not None and await request.is_disconnected():
+                    cancel_event.set()
+                    logger.warning(
+                        "=== MONITOR detected disconnect for %s/%s ===",
+                        thread_id, user_id,
+                    )
+                    return
+        except asyncio.CancelledError:
+            pass
+
+    async def _wrapped():
+        monitor_task = None
+        try:
+            if request is not None:
+                monitor_task = asyncio.create_task(_monitor_disconnect())
+                state.monitor_task = monitor_task
+
             async for event in _original_sse_stream(agent, input_data):
                 if cancel_event.is_set():
                     logger.warning(
@@ -171,7 +220,9 @@ def _cancel_aware_sse(agent, input_data):
                     break
                 yield event
         finally:
-            _cancel_events.pop(thread_id, None)
+            if monitor_task is not None:
+                monitor_task.cancel()
+            _cancel_states.pop(thread_id, None)
 
     return _wrapped()
 
@@ -243,10 +294,18 @@ async def _patched_stream_events(self, execution):
     try:
         async for event in _original_stream_events(self, execution):
             yield event
-            cancel_event = _cancel_events.get(execution.thread_id)
-            if cancel_event is not None and cancel_event.is_set():
+            state = _cancel_states.get(execution.thread_id)
+            if state is None:
+                continue
+            if state.cancel_event.is_set():
                 logger.warning(
-                    "=== CLIENT DISCONNECTED after event for %s ===",
+                    "=== CLIENT DISCONNECTED (cancel_event) after event for %s ===",
+                    execution.thread_id,
+                )
+                raise asyncio.CancelledError()
+            if state.request is not None and await state.request.is_disconnected():
+                logger.warning(
+                    "=== CLIENT DISCONNECTED (is_disconnected) after event for %s ===",
                     execution.thread_id,
                 )
                 raise asyncio.CancelledError()
@@ -256,7 +315,6 @@ async def _patched_stream_events(self, execution):
             execution.thread_id,
         )
         raise
-    # If we reach here, _stream_events broke out of its loop normally
     logger.warning(
         "=== STREAM_EVENTS EXITED for %s (is_complete=%s, task_done=%s) ===",
         execution.thread_id,
